@@ -1,4 +1,7 @@
+-- Supabase 프로젝트마다 extensions 스키마가 아직 없을 수 있어 먼저 생성합니다.
+create schema if not exists extensions;
 create extension if not exists vector with schema extensions;
+set search_path = public, extensions;
 
 create table if not exists public.ingestion_jobs (
   id uuid primary key default gen_random_uuid(), file_name text not null, file_size bigint not null,
@@ -27,7 +30,7 @@ create table if not exists public.rag_documents (
 
 create table if not exists public.rag_chunks (
   id bigint generated always as identity primary key, document_id uuid not null references public.rag_documents(id) on delete cascade,
-  chunk_index integer not null, content text not null, token_estimate integer, embedding extensions.vector(1536),
+  chunk_index integer not null, content text not null, token_estimate integer, embedding vector(1536),
   metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now(), unique(document_id,chunk_index)
 );
 
@@ -38,18 +41,14 @@ create index if not exists idx_documents_linked_pdf on public.rag_documents(link
 create index if not exists idx_chunks_document on public.rag_chunks(document_id);
 create index if not exists idx_chunks_embedding on public.rag_chunks using hnsw (embedding vector_cosine_ops);
 
-insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
-values ('complaint-originals','complaint-originals',false,104857600,array['application/pdf','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'])
-on conflict (id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
-
 alter table public.ingestion_jobs enable row level security;
 alter table public.source_files enable row level security;
 alter table public.rag_documents enable row level security;
 alter table public.rag_chunks enable row level security;
 
-create or replace function public.match_rag_chunks(query_embedding extensions.vector(1536), match_count integer default 5)
+create or replace function public.match_rag_chunks(query_embedding vector(1536), match_count integer default 5)
 returns table(id bigint,document_id uuid,content text,metadata jsonb,similarity float)
-language sql stable security invoker set search_path='' as $$
+language sql stable security invoker set search_path = public, extensions as $$
   select c.id,c.document_id,c.content,c.metadata,1-(c.embedding <=> query_embedding) similarity
   from public.rag_chunks c where c.embedding is not null order by c.embedding <=> query_embedding limit match_count;
 $$;
