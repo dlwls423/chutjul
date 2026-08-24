@@ -1,0 +1,5 @@
+import './GuideDetails.css';
+
+type GuideDocument={id:string;title:string;page_count?:number;chunk_count:number;metadata?:Record<string,unknown>};
+function toc(document:GuideDocument){const guide=document.metadata?.guide as{toc?:unknown}|undefined;return Array.isArray(guide?.toc)?guide.toc.map(String):[];}
+export default function GuideDetails({document,remove}:{document:GuideDocument,remove:(id:string)=>Promise<void>}){const items=toc(document);return <><div className="detail-title"><div><span className="type-chip guide-chip">안내서</span><h3>{document.title}</h3></div><button className="delete-doc" onClick={()=>remove(document.id)}>자료 삭제</button></div><div className="guide-summary"><div><small>전체 페이지</small><strong>{document.page_count||'—'}쪽</strong></div><div><small>검색 청크</small><strong>{document.chunk_count||0}개</strong></div><div><small>원문 저장</small><strong>전체 내용 저장됨</strong></div></div><section className="guide-toc"><h4>목차</h4>{items.length?<ol>{items.map((item,index)=><li key={`${item}-${index}`}>{item}</li>)}</ol>:<p>PDF에서 구분 가능한 목차를 찾지 못했습니다. 전체 원문은 검색용으로 정상 저장되어 있습니다.</p>}</section></>}
