@@ -1,0 +1,21 @@
+.account-dock{left:16px;bottom:16px;width:192px;gap:5px;border-top:1px solid #334862;padding-top:13px}
+.account-dock>button{border:0;background:transparent;color:#fff;padding:8px}
+.account-dock>button:first-child{gap:9px}
+.account-dock>button:first-child:hover,.account-dock .logout:hover{background:#203a5b}
+.account-dock b{width:32px;height:32px}
+.account-dock span,.account-dock small{font-size:11px}
+.account-dock small{color:#9fb0c6;margin-top:3px}
+.account-dock .admin-link{position:fixed;left:16px;top:218px;width:192px;display:flex;align-items:center;gap:13px;padding:12px 14px;background:transparent;border:0;color:#aebbd0;text-align:left}
+.account-dock .admin-link::before{content:'⚿';width:20px;text-align:center;font-size:18px}
+.account-dock .admin-link:hover{background:#294363;color:#fff}
+.account-dock .logout{background:transparent;color:#9fb0c6;border:0;text-align:left;padding-left:49px;font-size:10px}
+.sidebar .profile{visibility:hidden}
+.readonly-department{color:#8995a5!important}
+.readonly-department small{float:right;color:#a5afbd;font-weight:400}
+.auth-modal .readonly-department input:disabled{background:#f3f5f8;border-color:#e4e8ee;color:#9aa5b3;cursor:not-allowed}
+.department-change{margin-top:14px}
+.department-change>button{width:100%;border:1px solid #b7c9e8;background:#f4f8ff;color:#2859ae;padding:9px;border-radius:8px;font-weight:700;cursor:pointer}
+.department-request{margin-top:12px!important}
+.department-request textarea{min-height:72px;resize:vertical}
+@media(max-width:900px){.account-dock{width:40px;left:16px}.account-dock span,.account-dock .logout{display:none}.account-dock .admin-link{left:8px;width:56px;top:218px;padding:12px 14px;font-size:0}.account-dock .admin-link::before{font-size:18px}.sidebar .profile{display:none}}
+@media(max-width:600px){.account-dock{left:auto;right:10px;bottom:72px;width:160px;border-top:0}.account-dock span,.account-dock .logout{display:block}.account-dock .admin-link{position:static;width:100%;font-size:11px;background:#2f66d0;color:#fff}.account-dock .admin-link::before{font-size:16px}}
