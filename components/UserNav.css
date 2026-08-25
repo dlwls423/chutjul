@@ -7,7 +7,8 @@
 .account-dock small{color:#9fb0c6;margin-top:3px}
 .account-dock .admin-link{position:fixed;left:16px;top:264px;width:192px;display:flex;align-items:center;gap:13px;padding:12px 14px;background:transparent;border:0;color:#aebbd0;text-align:left}
 .account-dock .admin-link::before{content:'⚿';width:20px;text-align:center;font-size:18px}
-.account-dock .admin-link:hover{background:#294363;color:#fff}
+.account-dock .admin-link:hover{background:transparent;color:#aebbd0}
+.account-dock .admin-link.active,.account-dock .admin-link.active:hover{background:#294363;color:#fff;font-weight:700}
 .account-dock .logout{background:transparent;color:#9fb0c6;border:0;text-align:left;padding-left:49px;font-size:10px}
 .sidebar .profile{display:none}
 .sidebar-bottom{margin-bottom:96px}
@@ -34,4 +35,4 @@
 .approval-badge.rejected{background:#fbecec;color:#b34b4b}
 .request-history article{align-items:center}
 @media(max-width:900px){.account-dock{width:40px;left:16px}.account-dock span,.account-dock .logout{display:none}.account-dock .admin-link{left:8px;width:56px;top:264px;padding:12px 14px;font-size:0}.account-dock .admin-link::before{font-size:18px}.sidebar .profile{display:none}.sidebar-bottom{margin-bottom:72px}.auth-modal-back:has(.admin-modal){left:72px}.auth-modal-back:has(.admin-modal) .admin-modal{padding-left:24px;padding-right:24px}}
-@media(max-width:600px){.account-dock{left:auto;right:10px;bottom:72px;width:160px;border-top:0}.account-dock span,.account-dock .logout{display:block}.account-dock .admin-link{position:static;width:100%;font-size:11px;background:#2f66d0;color:#fff}.account-dock .admin-link::before{font-size:16px}.sidebar-bottom{margin-bottom:0}.auth-modal-back:has(.admin-modal){left:0;bottom:62px}.auth-modal-back:has(.admin-modal) .admin-modal{padding:92px 16px 30px}.auth-modal-back:has(.admin-modal) .admin-modal>h2{height:76px;padding:24px 16px;font-size:19px}.auth-modal-back:has(.admin-modal) .auth-x{right:14px;top:20px}}
+@media(max-width:600px){.account-dock{left:auto;right:10px;bottom:72px;width:160px;border-top:0}.account-dock span,.account-dock .logout{display:block}.account-dock .admin-link{position:static;width:100%;font-size:11px;background:transparent;color:#aebbd0}.account-dock .admin-link.active{background:#294363;color:#fff}.account-dock .admin-link::before{font-size:16px}.sidebar-bottom{margin-bottom:0}.auth-modal-back:has(.admin-modal){left:0;bottom:62px}.auth-modal-back:has(.admin-modal) .admin-modal{padding:92px 16px 30px}.auth-modal-back:has(.admin-modal) .admin-modal>h2{height:76px;padding:24px 16px;font-size:19px}.auth-modal-back:has(.admin-modal) .auth-x{right:14px;top:20px}}

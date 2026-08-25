@@ -60,7 +60,8 @@
   .account-dock{right:8px!important;left:auto!important;bottom:74px!important;width:42px!important;padding:0!important;border:0!important}
   .account-dock>button:first-child{width:42px;height:42px;padding:5px;border-radius:50%;background:#193453;box-shadow:0 4px 14px rgba(18,37,63,.22)}
   .account-dock>button:first-child span,.account-dock .logout{display:none!important}
-  .account-dock .admin-link{position:fixed;left:auto;right:8px;top:auto;bottom:122px;width:42px;height:42px;padding:10px;font-size:0;border-radius:50%;background:#2f66d0}
+  .account-dock .admin-link{position:fixed;left:auto;right:8px;top:auto;bottom:122px;width:42px;height:42px;padding:10px;font-size:0;border-radius:50%;background:#193453}
+  .account-dock .admin-link.active{background:#294363}
   .admin-table{min-width:720px}
   .admin-modal article{padding:11px}
 }
