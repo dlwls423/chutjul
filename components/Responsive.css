@@ -1,0 +1,82 @@
+@media(max-width:760px){
+  body{font-size:14px;overflow-x:hidden}
+  .app-shell{display:block}
+  .sidebar{height:68px;padding:6px 8px}
+  .sidebar nav .nav-item{flex:1;flex-direction:column;justify-content:center;gap:1px;padding:5px 8px;text-align:center}
+  .sidebar nav .nav-item i{font-size:18px;line-height:20px}
+  .sidebar nav .nav-item span{display:block;font-size:9px;white-space:nowrap}
+  .workspace{min-width:0}
+  .topbar{height:auto;min-height:76px;padding:14px 12px;gap:10px;align-items:flex-start}
+  .topbar h1{font-size:18px;margin-bottom:3px}
+  .head-actions{margin-left:auto;flex-shrink:0}
+  .department-scope{max-width:158px;padding:6px 7px}
+  .department-scope select{width:100%;max-width:142px;font-size:10px;text-overflow:ellipsis}
+  .scope-notice,.workspace:has(>.search-page)>.scope-notice{margin:9px 12px 0;padding:9px 10px;line-height:1.5;overflow-wrap:anywhere}
+  .content{padding:14px 12px 82px}
+  .input-card{padding:16px 14px}
+  .title-row{gap:10px}
+  .section-title{align-items:flex-start}
+  .section-title h2{font-size:14px}
+  .meta-row{grid-template-columns:1fr}
+  .analysis-head{align-items:flex-start;gap:8px}
+  .done{white-space:nowrap}
+  .draft-head{display:block;padding:15px}
+  .draft-head>div:last-child{margin-top:12px;display:grid;grid-template-columns:1fr 1fr}
+  .editor{padding:18px 16px;min-height:240px}
+  .evidence{padding:16px}
+  .search-page{min-height:calc(100vh - 138px)}
+  .search-hero{padding:28px 12px 22px}
+  .search-hero h2{font-size:21px}
+  .big-search{height:46px;margin-top:18px;padding-left:12px}
+  .big-search input{min-width:0;padding:0 8px;font-size:12px}
+  .big-search button{height:34px;padding:0 14px}
+  .filters{grid-template-columns:1fr}
+  .tabs{overflow-x:auto;white-space:nowrap}
+  .tabs button{flex:0 0 auto}
+  .search-results article{padding:14px 12px;gap:9px}
+  .search-results .open{justify-self:start}
+  .data-page{padding:14px 12px 84px}
+  .pipeline-note{margin-bottom:12px;padding:9px 10px}
+  .pipeline-note b,.pipeline-note span{white-space:nowrap;flex:0 0 auto}
+  .metric-grid{gap:8px}
+  .drop-zone{padding:24px 14px}
+  .file-tools{display:grid;grid-template-columns:1fr 100px;width:100%}
+  .mini-search{min-width:0}
+  .mini-search input{width:calc(100% - 20px)}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .table-wrap table{min-width:760px}
+  .table-foot{padding:12px}
+  .viewer-back{padding:0;align-items:stretch}
+  .document-viewer{height:calc(100vh - 62px);width:100%;border-radius:0}
+  .document-viewer>header{padding:16px}
+  .document-viewer header h2{font-size:16px;overflow-wrap:anywhere}
+  .document-list{padding:10px}
+  .document-detail{padding:16px 14px}
+  .detail-title{gap:8px}
+  .detail-title h3{font-size:16px}
+  .auth-card,.pending-card{padding:22px 18px}
+  .auth-card,.pending-card{width:calc(100% - 24px)}
+  .auth-modal{padding:22px 16px;width:100%;max-height:94vh}
+  .account-dock{right:8px!important;left:auto!important;bottom:74px!important;width:42px!important;padding:0!important;border:0!important}
+  .account-dock>button:first-child{width:42px;height:42px;padding:5px;border-radius:50%;background:#193453;box-shadow:0 4px 14px rgba(18,37,63,.22)}
+  .account-dock>button:first-child span,.account-dock .logout{display:none!important}
+  .account-dock .admin-link{position:fixed;left:auto;right:8px;top:auto;bottom:122px;width:42px;height:42px;padding:10px;font-size:0;border-radius:50%;background:#2f66d0}
+  .admin-table{min-width:720px}
+  .admin-modal article{padding:11px}
+}
+
+@media(max-width:420px){
+  .topbar>div:first-child{min-width:0}
+  .topbar p{display:none}
+  .department-scope{max-width:132px}
+  .department-scope select{max-width:116px}
+  .summary-strip{grid-template-columns:1fr}
+  .analysis-head{display:block}
+  .done{display:inline-block;margin-top:9px}
+  .draft-head>div:last-child{grid-template-columns:1fr}
+  .suggest span{width:100%;text-align:center}
+  .file-tools{grid-template-columns:1fr}
+  .file-tools select{width:100%}
+  .modal-actions{display:grid;grid-template-columns:1fr 1fr}
+  .auth-row{grid-template-columns:1fr}
+}
