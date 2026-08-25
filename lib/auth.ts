@@ -1,4 +1,5 @@
 import {cookies} from 'next/headers';
+import {isPublicTestMode,TEST_DEPARTMENT} from './test-access';
 
 export type UserProfile={id:string;email:string;full_name:string;department:string;position:string;office_phone:string;role:'admin'|'user';approval_status:'pending'|'approved'|'rejected';created_at:string};
 type AuthUser={id:string;email?:string};
@@ -13,6 +14,6 @@ async function setSessionCookies(session:AuthSession){const jar=await cookies();
 async function refreshSession(refreshToken:string){const session=await request<AuthSession>('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:refreshToken})});await setSessionCookies(session);return session.user;}
 async function authUser(){const jar=await cookies();let token=jar.get('chutjul_access')?.value;if(token){try{const{url,key}=config();const response=await fetch(`${url}/auth/v1/user`,{headers:{apikey:key,Authorization:`Bearer ${token}`},cache:'no-store'});if(response.ok)return await response.json()as AuthUser;}catch{}}const refresh=jar.get('chutjul_refresh')?.value;if(!refresh)return null;try{return await refreshSession(refresh)}catch{await signOut();return null;}}
 export async function getProfile(id:string){const rows=await request<UserProfile[]>(`/rest/v1/user_profiles?id=eq.${encodeURIComponent(id)}&select=*&limit=1`);return rows[0]||null;}
-export async function currentProfile(){const user=await authUser();return user?getProfile(user.id):null;}
+export async function currentProfile(){if(isPublicTestMode())return{id:'public-test',email:'test@chutjul.local',full_name:'테스트 사용자',department:TEST_DEPARTMENT,position:'테스터',office_phone:'-',role:'user',approval_status:'approved',created_at:new Date(0).toISOString()} satisfies UserProfile;const user=await authUser();return user?getProfile(user.id):null;}
 export async function requireProfile(options:{approved?:boolean;admin?:boolean}={}){const profile=await currentProfile();if(!profile)throw new Error('AUTH_REQUIRED');if(options.approved&&profile.approval_status!=='approved')throw new Error('ACCOUNT_NOT_APPROVED');if(options.admin&&profile.role!=='admin')throw new Error('ADMIN_REQUIRED');return profile;}
 export async function serviceRequest<T>(path:string,init:RequestInit={}){return request<T>(path,init);}

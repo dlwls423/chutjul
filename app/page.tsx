@@ -7,7 +7,7 @@ import AuthGate,{Profile} from '../components/AuthGate';
 type View='analyze'|'search'|'data';
 type UploadJob={id:string;file_name:string;file_size:number;document_type:string;status:string;progress:number;document_count?:number;chunk_count?:number;error_message?:string;created_at:string;source_files?:{original_name:string;size_bytes:number}[]};
 type RagDocument={id:string;title:string;document_type:string;department?:string;category_major?:string;category_middle?:string;category_minor?:string;question_original?:string;answer_original?:string;content_masked?:string;pii_findings?:{type:string}[];page_count?:number;chunk_count:number;metadata?:Record<string,unknown>;status:string;created_at:string};
-const departments=['범정부마이데이터추진단','개인정보보호정책과','조사총괄과','개인정보침해평가과','신기술개인정보과','분쟁조정과'];
+const departments=['범정부마이데이터추진단','개인정보보호정책과','조사총괄과','개인정보침해평가과','신기술개인정보과','분쟁조정과','테스트부서'];
 export default function Home(){return <AuthGate>{profile=><WorkspaceApp profile={profile}/>}</AuthGate>}
 const complaint='마이데이터 사업자 허가를 신청한 지 30일이 지났는데 아직 결과를 받지 못했습니다. 법적으로 처리기한이 언제까지인지, 지연되는 경우 어떤 안내를 받을 수 있는지 알고 싶습니다.';
 const cases=[['92%','마이데이터 사업자 허가 심사기간 관련 문의','허가 신청 후 법정 처리기간 및 심사 지연 시 통지 절차에 대한 문의입니다.','2026-04-18','금융데이터과'],['86%','본인신용정보관리업 허가 처리 절차','허가 심사의 단계와 보완 요청에 따른 기간 산정 문의','2025-11-03','마이데이터추진단'],['79%','허가 신청 서류 보완기간 산정 문의','서류 보완 요청을 받은 경우 처리기간 계산 방법 문의','2025-08-22','금융데이터과']];
