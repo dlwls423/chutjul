@@ -16,6 +16,7 @@ export default function AuthGate({children}:{children:(profile:Profile)=>ReactNo
   async function load(){try{const r=await fetch('/api/auth');const j=await r.json();setProfile(j.profile||null)}finally{setLoading(false)}}
   useEffect(()=>{load()},[]);
   useEffect(()=>{const closePanel=()=>setPanel(null);window.addEventListener('workspace-navigation',closePanel);return()=>window.removeEventListener('workspace-navigation',closePanel)},[]);
+  useEffect(()=>{document.documentElement.classList.toggle('authorization-open',panel==='admin');return()=>document.documentElement.classList.remove('authorization-open')},[panel]);
   async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setMessage('처리 중…');const body=Object.fromEntries(new FormData(event.currentTarget));const r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:mode,...body})});const j=await r.json();if(!r.ok){setMessage(j.error||'요청에 실패했습니다.');return}if(mode==='signup'){setMode('login');setMessage('가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.')}else{setProfile(j.profile);setMessage('')}}
   async function logout(){await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});setProfile(null);setPanel(null)}
   if(loading)return <div className="auth-loading">첫줄을 불러오는 중입니다…</div>;
