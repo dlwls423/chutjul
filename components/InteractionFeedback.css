@@ -1,0 +1,9 @@
+.global-action-progress{position:fixed;z-index:200;left:0;right:0;top:0;height:3px;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .12s}
+.global-action-progress.active{opacity:1}
+.global-action-progress i{display:block;width:34%;height:100%;background:linear-gradient(90deg,#2f66d0,#70a1ff);transform:translateX(-110%)}
+.global-action-progress.active i{animation:action-progress .9s ease-out forwards}
+button.action-pending{pointer-events:none;cursor:wait!important;filter:saturate(.8);opacity:.72}
+button.action-pending::after{content:' ···';letter-spacing:1px}
+button:disabled{cursor:not-allowed!important;opacity:.58}
+@keyframes action-progress{0%{transform:translateX(-110%)}70%{transform:translateX(170%)}100%{transform:translateX(300%)}}
+@media(prefers-reduced-motion:reduce){.global-action-progress.active i{animation:none;transform:none;width:100%}}

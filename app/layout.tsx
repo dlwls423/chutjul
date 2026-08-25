@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import './extras.css';
 import './pipeline.css';
+import InteractionFeedback from '../components/InteractionFeedback';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <InteractionFeedback />
         {children}
       </body>
     </html>
