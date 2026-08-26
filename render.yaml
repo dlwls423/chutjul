@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: chutjul-pii-pdf-masker
+    runtime: docker
+    rootDir: services/pii_pdf_masker
+    healthCheckPath: /health
+    envVars:
+      - key: MASKER_API_KEY
+        generateValue: true
+      - key: MAX_UPLOAD_MB
+        value: 100
+      - key: MAX_PAGES
+        value: 300
