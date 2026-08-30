@@ -1,0 +1,7 @@
+.pipeline-note b::after{content:'V2 개인정보 보호 처리'!important}
+.pipeline-note span:nth-of-type(1)::after{content:'로컬 텍스트 추출'!important}
+.pipeline-note span:nth-of-type(2)::after{content:'원문 PII 탐지'!important}
+.pipeline-note span:nth-of-type(3)::after{content:'로컬 LLM 핵심 정리'!important}
+.pipeline-note span:nth-of-type(4)::after{content:'요약 개인정보 재검사'!important}
+.pipeline-note span:nth-of-type(5)::after{content:'안전한 청크 임베딩'!important}
+.pipeline-note span:nth-of-type(6)::after{content:'저장 완료'!important}
