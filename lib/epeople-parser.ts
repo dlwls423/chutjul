@@ -3,13 +3,15 @@ export type ParsedRow=Record<string,string>;
 export function cleanExtractedText(text:string){const labels=/^(신청번호|신청경로|진행상황|신청일시|민원제목|<첨부파일>|민원종류|처리완료예정일|설정된 처리기간|민원요지|민원공개여부|열람범위|관리유형|처리결과|처리부서|관리부서|전화번호|관련법령|처리자|처리결과 통보일|민원인 답변 확인일|민원만족도)/;const lines=text.split(/\r?\n/).map(line=>line.replace(/[ \t]+/g,' ').trim()).filter(line=>line&&!/^\d+\.$/.test(line)&&!/^\d{1,2}\.\s*\d{1,2}\.\s*\d{1,2}\.\s*(오전|오후).*gov\.epeople/i.test(line)&&!/^\[?https?:\/\/gov\.epeople/i.test(line)&&!/^\d+\/\d+$/.test(line));const out:string[]=[];for(const line of lines){const previous=out.at(-1);const join=previous&&!labels.test(line)&&!/^[-•가-힣]\.|^\d+\./.test(line)&&!/[.?!:>]$/.test(previous)&&/[가-힣]$/.test(previous)&&/^[가-힣]/.test(line);if(join)out[out.length-1]=`${previous}${line}`;else out.push(line);}return out.join('\n').replace(/\n{3,}/g,'\n\n').trim();}
 export function extractGuideToc(text:string){const heading=/^(?:제?\s*\d+\s*[장절편]|\d+(?:\.\d+){0,3}[.)]?|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]|[가-힣][.)])\s*\S+|^(?:부록|붙임|참고|별첨|용어 설명|자주 묻는 질문)/;const seen=new Set<string>();for(const raw of text.split(/\r?\n/)){const line=raw.replace(/\.{2,}\s*\d+\s*$/,'').replace(/\s+/g,' ').trim();if(line.length>=3&&line.length<=120&&heading.test(line))seen.add(line);if(seen.size>=80)break;}return[...seen];}
 function valueAfter(text:string,label:string,pattern='[^\\n]+'){const match=text.match(new RegExp(`${label}\\s*(${pattern})`));return match?.[1]?.trim()||'';}
-function section(text:string,start:string,ends:string[]){const index=text.search(new RegExp(start));if(index<0)return'';const after=text.slice(index).replace(new RegExp(`^[\\s\\S]*?${start}\\s*`),'');let end=after.length;for(const marker of ends){const found=after.search(new RegExp(marker));if(found>=0&&found<end)end=found;}return cleanExtractedText(after.slice(0,end));}
+function section(text:string,start:string,ends:string[],minimumLength=0){const index=text.search(new RegExp(start));if(index<0)return'';const after=text.slice(index).replace(new RegExp(`^[\\s\\S]*?${start}\\s*`),'');let end=after.length;for(const marker of ends){const expression=new RegExp(marker,'g');for(const match of after.matchAll(expression)){const found=match.index||0;if(found>=minimumLength&&found<end){end=found;break;}}}return cleanExtractedText(after.slice(0,end));}
 function maskKoreanName(name:string){const clean=name.replace(/\s/g,'');if(clean.length<2)return clean;if(clean.length===2)return`${clean[0]}O`;return`${clean[0]}${'O'.repeat(clean.length-2)}${clean.at(-1)}`;}
 
 export function parseEpeopleComplaint(raw:string,fileName:string):ParsedRow|null{
   if(!raw.includes('민원 상세')&&!/신청번호\s*1AA-/.test(raw))return null;
   const text=cleanExtractedText(raw);
-  const question=section(text,'<첨부파일>[\\s\\S]*?안녕하세요[.。,]?',['민원종류','민원처리기간','처리완료예정일','민원요지']);
+  // PDF table extraction can place an early metadata label immediately after the greeting.
+  // Ignore terminators before a meaningful question body has accumulated.
+  const question=section(text,'<첨부파일>[\\s\\S]*?안녕하세요[.。,]?',['민원종류','민원처리기간','처리완료예정일','민원요지'],20);
   const metadataEnd=text.search(/처리부서|처리자|처리결과\s*통보일/);
   const answerCandidates=[...text.matchAll(/처리결과(?:\(답변내용\))?\s*(?=1\.)|(?:처리결과(?:\(답변내용\))?\s*)?(?=안녕하세요[,，]?\s*개인정보보호위원회)/g)].filter(match=>(match.index||0)>metadataEnd);
   const answerStart=answerCandidates.at(-1)?.index??-1;
