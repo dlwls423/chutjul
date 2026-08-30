@@ -148,16 +148,18 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
     setUploadStage("파일을 확인하고 있습니다.");
     setUploadProgress(4);
     try {
+      let uploadFile=f;
       if (f.name.toLowerCase().endsWith(".pdf") && !f.name.includes("안내서")) {
-        const privacy = await preparePdfInBrowser(f, (message, progress) => {
+        const prepared = await preparePdfInBrowser(f, (message, progress) => {
           setUploadStage(message);
           setUploadProgress(progress);
         });
-        form.append("browserPrivacy", JSON.stringify(privacy));
+        uploadFile=prepared.maskedPdf;
+        form.append("browserPrivacy", JSON.stringify(prepared.privacy));
       }
-      setUploadStage("검증된 자료를 안전하게 저장하고 있습니다.");
+      setUploadStage("마스킹된 PDF와 비식별 자료만 저장하고 있습니다.");
       setUploadProgress(84);
-      form.append("file", f);
+      form.append("file", uploadFile);
       form.append("documentType", "complaint");
       form.append("department", currentDepartment);
       if (retryId) form.append("retryJobId", retryId);
@@ -762,7 +764,7 @@ function Data({
     if (
       !detailJob ||
       !confirm(
-        `“${detailJob.file_name}”의 민원, 검색 청크, 원본 파일과 처리 기록을 모두 삭제할까요? 이 작업은 복구할 수 없습니다.`,
+        `“${detailJob.file_name}”의 민원, 검색 청크, 마스킹 PDF와 처리 기록을 모두 삭제할까요? 이 작업은 복구할 수 없습니다.`,
       )
     )
       return;
@@ -815,7 +817,7 @@ function Data({
         <b>V2 브라우저 보호 처리</b>
         <span>PDF 텍스트 추출</span>
         <i>→</i>
-        <span>개인정보 마스킹</span>
+        <span>마스킹 PDF 생성</span>
         <i>→</i>
         <span>브라우저 AI 요약</span>
         <i>→</i>
@@ -869,7 +871,7 @@ function Data({
         {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
         <p>Excel 또는 PDF 파일을 끌어놓거나 클릭하여 선택하세요.</p>
         <small>
-          PDF 원문은 OpenAI로 보내지 않음 · 브라우저 안에서 마스킹·요약 · 최대 100MB
+          민원 원본은 서버·Storage·DB에 저장하지 않음 · 마스킹 PDF와 비식별 요약만 저장
         </small>
         <button disabled={uploading}>
           {uploading ? "처리 중…" : "파일 선택"}
@@ -1007,7 +1009,7 @@ function statusLabel(v: string) {
       {
         queued: "대기 중",
         checking: "중복 검사",
-        uploading: "원본 격리 저장",
+        uploading: "마스킹 PDF 저장",
         extracting_local: "브라우저 PDF 텍스트 추출",
         detecting_pii: "원문 개인정보 탐지",
         summarizing_local: "브라우저 로컬 AI 질의 핵심 정리",

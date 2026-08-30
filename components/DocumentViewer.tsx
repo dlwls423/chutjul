@@ -82,7 +82,7 @@ const labels = [
 ];
 const pdfStages = [
   ["checking", "중복 검사", 8, "파일 해시와 중복 여부 확인"],
-  ["uploading", "원본 격리 저장", 18, "비공개 Storage에 원본 저장"],
+  ["uploading", "마스킹 PDF 저장", 18, "원본 대신 개인정보가 제거된 이미지형 PDF만 저장"],
   [
     "extracting_local",
     "브라우저 PDF 텍스트 추출",

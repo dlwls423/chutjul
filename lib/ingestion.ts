@@ -292,12 +292,13 @@ export async function storeOriginal(
   config: Config,
   file: File,
   fileId: string,
+  maskedOnly = false,
 ) {
   const extension =
     (file.name.split(".").pop() || "bin")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "") || "bin";
-  const key = `${new Date().toISOString().slice(0, 10)}/${fileId}/original.${extension}`;
+  const key = `${new Date().toISOString().slice(0, 10)}/${fileId}/${maskedOnly ? "masked" : "original"}.${extension}`;
   const res = await fetch(
     `${config.url}/storage/v1/object/${config.bucket}/${key}`,
     {
@@ -314,12 +315,18 @@ export async function storeOriginal(
   if (!res.ok) throw new Error(`STORAGE_${res.status}: ${await res.text()}`);
   await supabase(config, `/rest/v1/source_files?id=eq.${fileId}`, {
     method: "PATCH",
-    body: JSON.stringify({ storage_path: key }),
+    body: JSON.stringify({
+      storage_path: key,
+      ...(maskedOnly
+        ? { masked_storage_path: key, redaction_status: "completed" }
+        : {}),
+    }),
   });
   return key;
 }
 export type BrowserPrivacyResult = {
   sourceHash: string;
+  originalHash: string;
   questionLength: number;
   answerLength: number;
   outboundSafe: boolean;
@@ -335,6 +342,7 @@ export type BrowserPrivacyResult = {
   piiSummary: Record<string, number>;
   localModel: string;
   schemaVersion: number;
+  maskedRecord: Row;
 };
 function verifyBrowserPrivacy(
   result: BrowserPrivacyResult | undefined,
@@ -349,7 +357,9 @@ function verifyBrowserPrivacy(
     throw new Error("OUTBOUND_PRIVACY_BLOCKED:SERVER_SECONDARY_CHECK");
   if (!result.structuredComplaint?.purpose)
     throw new Error("BROWSER_PRIVACY_INVALID");
-  return result;
+  if (!result.maskedRecord?.question || !result.maskedRecord?.answer)
+    throw new Error("BROWSER_PRIVACY_INVALID");
+  return { ...result, maskedRecord: maskRow(result.maskedRecord) };
 }
 function recordsFromPdfText(file: File, text: string, pageCount?: number) {
   const fullText = cleanExtractedText(text);
@@ -745,9 +755,13 @@ export async function persistRecords(
     category_major: p.row.category_major || null,
     category_middle: p.row.category_middle || null,
     category_minor: p.row.category_minor || null,
-    question_original: p.row.question || null,
-    answer_original: p.row.answer || null,
-    content_original: p.original,
+    question_original: p.row.question
+      ? maskPersonalInfo(p.row.question).masked
+      : null,
+    answer_original: p.row.answer
+      ? maskPersonalInfo(p.row.answer).masked
+      : null,
+    content_original: p.masked,
     content_masked: p.masked,
     pii_findings: p.findings.map(({ type }) => ({ type })),
     linked_pdf_name: p.row.linked_pdf_name || null,
@@ -929,10 +943,11 @@ export async function processUpload(
 ) {
   const config = getConfig();
   const hash = await sha256(file);
+  const duplicateHash = browserPrivacy?.originalHash || hash;
   const { jobId, fileId } = await createJob(
     config,
     file,
-    hash,
+    duplicateHash,
     documentType,
     department,
   );
@@ -993,17 +1008,36 @@ async function runPipeline(
 ) {
   try {
     await updateJob(config, jobId, "checking", { progress: 8 });
+    const isComplaintPdf = file.name.toLowerCase().endsWith(".pdf") && !file.name.includes("안내서");
+    let verifiedPrivacy: BrowserPrivacyResult | undefined;
+    let maskedPdfPages: number | undefined;
+    if (isComplaintPdf) {
+      verifiedPrivacy = verifyBrowserPrivacy(browserPrivacy, fileHash);
+      const maskedBytes = new Uint8Array(await file.arrayBuffer());
+      const inspected = await extractText(maskedBytes, { mergePages: true });
+      maskedPdfPages = inspected.totalPages;
+      if (cleanExtractedText(inspected.text).length > 10)
+        throw new Error("MASKED_PDF_CONTAINS_EXTRACTABLE_TEXT");
+    }
     await updateJob(config, jobId, "uploading", { progress: 18 });
-    const storagePath = await storeOriginal(config, file, fileId);
+    const storagePath = await storeOriginal(config, file, fileId, isComplaintPdf);
     let parsed: { records: Row[]; pageCount?: number; rawText: string };
     let piiCount = 0;
     if (file.name.toLowerCase().endsWith(".pdf")) {
       await updateJob(config, jobId, "extracting_local", { progress: 30 });
-      const source = new Uint8Array(await file.arrayBuffer());
-      const local = await extractText(source, { mergePages: true });
-      const localText = cleanExtractedText(local.text);
-      if (!localText.trim()) throw new Error("LOCAL_PDF_TEXT_EMPTY");
-      parsed = recordsFromPdfText(file, localText, local.totalPages);
+      if (isComplaintPdf && verifiedPrivacy) {
+        parsed = {
+          records: [{ ...verifiedPrivacy.maskedRecord, document_type: "complaint" }],
+          pageCount: maskedPdfPages,
+          rawText: "",
+        };
+      } else {
+        const source = new Uint8Array(await file.arrayBuffer());
+        const local = await extractText(source, { mergePages: true });
+        const localText = cleanExtractedText(local.text);
+        if (!localText.trim()) throw new Error("LOCAL_PDF_TEXT_EMPTY");
+        parsed = recordsFromPdfText(file, localText, local.totalPages);
+      }
     } else {
       await updateJob(config, jobId, "parsing", { progress: 30 });
       parsed = await parseFile(file);
@@ -1026,7 +1060,7 @@ async function runPipeline(
           pii_count: maskPersonalInfo(question).findings.length,
         });
         await updateJob(config, jobId, "summarizing_local", { progress: 52 });
-        const privacy = verifyBrowserPrivacy(browserPrivacy, fileHash);
+        const privacy = verifiedPrivacy || verifyBrowserPrivacy(browserPrivacy, fileHash);
         piiCount += Object.values(privacy.piiSummary).reduce(
           (sum, count) => sum + Number(count || 0),
           0,

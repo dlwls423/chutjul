@@ -115,6 +115,15 @@ function fail(error: unknown) {
       },
       { status: 422 },
     );
+  if (message === "MASKED_PDF_CONTAINS_EXTRACTABLE_TEXT")
+    return NextResponse.json(
+      {
+        error:
+          "마스킹 PDF에서 원문 텍스트가 다시 추출되어 저장을 중단했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.",
+        code: message,
+      },
+      { status: 422 },
+    );
   if (message.startsWith("OUTBOUND_PRIVACY_BLOCKED"))
     return NextResponse.json(
       {
