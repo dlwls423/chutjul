@@ -11,7 +11,7 @@ export function parseEpeopleComplaint(raw:string,fileName:string):ParsedRow|null
   const text=cleanExtractedText(raw);
   const question=section(text,'<첨부파일>[\\s\\S]*?안녕하세요[.。,]?',['민원종류','민원처리기간','처리완료예정일','민원요지']);
   const metadataEnd=text.search(/처리부서|처리자|처리결과\s*통보일/);
-  const answerCandidates=[...text.matchAll(/(?:처리결과(?:\(답변내용\))?\s*)?(?=1\.\s*안녕하세요|안녕하세요[,，]?\s*개인정보보호위원회)/g)].filter(match=>(match.index||0)>metadataEnd);
+  const answerCandidates=[...text.matchAll(/처리결과(?:\(답변내용\))?\s*(?=1\.)|(?:처리결과(?:\(답변내용\))?\s*)?(?=안녕하세요[,，]?\s*개인정보보호위원회)/g)].filter(match=>(match.index||0)>metadataEnd);
   const answerStart=answerCandidates.at(-1)?.index??-1;
   const answer=answerStart>=0?section(text.slice(answerStart),'(?:처리결과(?:\\(답변내용\\))?\\s*)?',['처리결과 첨부파일','민원만족도','만족도 조사']):'';
   const attachmentSection=section(text,'<첨부파일>',['안녕하세요[.。,]?']);
