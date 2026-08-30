@@ -1,8 +1,137 @@
-import {NextResponse} from 'next/server';
-import {getConfig,listJobs,processUpload,retryUpload} from '../../../lib/ingestion';
-import {requireProfile} from '../../../lib/auth';
-export const runtime='edge';
-const allowed=['pdf','xlsx','xls'];
-export async function GET(request:Request){try{const profile=await requireProfile({approved:true});const requested=new URL(request.url).searchParams.get('department');const department=profile.role==='admin'&&requested?requested:profile.department;return NextResponse.json({jobs:await listJobs(getConfig(),department)});}catch(error){return fail(error);}}
-export async function POST(request:Request){try{const profile=await requireProfile({approved:true});const form=await request.formData();const file=form.get('file');if(!(file instanceof File))return NextResponse.json({error:'파일을 선택해 주세요.'},{status:400});const ext=file.name.split('.').pop()?.toLowerCase()||'';if(!allowed.includes(ext))return NextResponse.json({error:'PDF, XLSX, XLS 파일만 업로드할 수 있습니다.'},{status:415});if(file.size>100*1024*1024)return NextResponse.json({error:'파일은 최대 100MB까지 업로드할 수 있습니다.'},{status:413});const requestedDepartment=String(form.get('department')||'').trim();const department=profile.role==='admin'&&requestedDepartment?requestedDepartment:profile.department;if(!department)return NextResponse.json({error:'부서를 선택해 주세요.'},{status:400});const documentType=file.name.includes('안내서')?'guide':String(form.get('documentType')||'complaint');const retryId=form.get('retryJobId');const result=typeof retryId==='string'&&retryId?await retryUpload(file,retryId,department):await processUpload(file,documentType,department);return NextResponse.json(result,{status:201});}catch(error){return fail(error);}}
-function fail(error:unknown){const message=error instanceof Error?error.message:'처리 중 오류가 발생했습니다.';if(message==='AUTH_REQUIRED')return NextResponse.json({error:'로그인이 필요합니다.'},{status:401});if(message==='ACCOUNT_NOT_APPROVED')return NextResponse.json({error:'관리자 승인 후 이용할 수 있습니다.'},{status:403});if(message.startsWith('DUPLICATE_FILE:'))return NextResponse.json({error:`이미 등록된 파일입니다: ${message.split(':').slice(1).join(':')}`},{status:409});if(message==='SUPABASE_NOT_CONFIGURED')return NextResponse.json({error:'Supabase 연결 정보가 아직 설정되지 않았습니다.',code:message},{status:503});if(message==='OPENAI_NOT_CONFIGURED')return NextResponse.json({error:'OpenAI API 키가 아직 설정되지 않았습니다.',code:message},{status:503});if(message==='PRIVACY_GATEWAY_NOT_CONFIGURED')return NextResponse.json({error:'로컬 개인정보 게이트웨이 주소가 설정되지 않았습니다. 원문은 외부 AI로 전송되지 않았습니다.',code:message},{status:503});if(message==='PRIVACY_GATEWAY_UNREACHABLE')return NextResponse.json({error:'이 컴퓨터의 로컬 개인정보 게이트웨이에 연결할 수 없습니다. Ollama와 게이트웨이 실행 상태를 확인해 주세요.',code:message},{status:503});if(message.startsWith('PRIVACY_GATEWAY_'))return NextResponse.json({error:'로컬 개인정보 비식별화 또는 질의 핵심 정리에 실패했습니다. 원문은 외부 AI로 전송되지 않았습니다.',code:message.split(':')[0]},{status:422});if(message.startsWith('OUTBOUND_PRIVACY_BLOCKED'))return NextResponse.json({error:'외부 AI 전송 예정자료에 개인정보가 남아 있어 처리를 중단했습니다.',code:'OUTBOUND_PRIVACY_BLOCKED'},{status:422});if(message.startsWith('COMPLAINT_SECTION_EXTRACTION_FAILED'))return NextResponse.json({error:'로컬 PDF 추출 결과에서 민원 질의 또는 답변을 분리하지 못했습니다. 원문은 외부 AI로 전송되지 않았습니다.',code:'COMPLAINT_SECTION_EXTRACTION_FAILED'},{status:422});return NextResponse.json({error:message},{status:500});}
+import { NextResponse } from "next/server";
+import {
+  BrowserPrivacyResult,
+  getConfig,
+  listJobs,
+  processUpload,
+  retryUpload,
+} from "../../../lib/ingestion";
+import { requireProfile } from "../../../lib/auth";
+export const runtime = "edge";
+const allowed = ["pdf", "xlsx", "xls"];
+export async function GET(request: Request) {
+  try {
+    const profile = await requireProfile({ approved: true });
+    const requested = new URL(request.url).searchParams.get("department");
+    const department =
+      profile.role === "admin" && requested ? requested : profile.department;
+    return NextResponse.json({ jobs: await listJobs(getConfig(), department) });
+  } catch (error) {
+    return fail(error);
+  }
+}
+export async function POST(request: Request) {
+  try {
+    const profile = await requireProfile({ approved: true });
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File))
+      return NextResponse.json(
+        { error: "파일을 선택해 주세요." },
+        { status: 400 },
+      );
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    if (!allowed.includes(ext))
+      return NextResponse.json(
+        { error: "PDF, XLSX, XLS 파일만 업로드할 수 있습니다." },
+        { status: 415 },
+      );
+    if (file.size > 100 * 1024 * 1024)
+      return NextResponse.json(
+        { error: "파일은 최대 100MB까지 업로드할 수 있습니다." },
+        { status: 413 },
+      );
+    const requestedDepartment = String(form.get("department") || "").trim();
+    const department =
+      profile.role === "admin" && requestedDepartment
+        ? requestedDepartment
+        : profile.department;
+    if (!department)
+      return NextResponse.json(
+        { error: "부서를 선택해 주세요." },
+        { status: 400 },
+      );
+    const documentType = file.name.includes("안내서")
+      ? "guide"
+      : String(form.get("documentType") || "complaint");
+    const privacyRaw = form.get("browserPrivacy");
+    let browserPrivacy: BrowserPrivacyResult | undefined;
+    if (typeof privacyRaw === "string" && privacyRaw) {
+      try {
+        browserPrivacy = JSON.parse(privacyRaw) as BrowserPrivacyResult;
+      } catch {
+        throw new Error("BROWSER_PRIVACY_INVALID");
+      }
+    }
+    const retryId = form.get("retryJobId");
+    const result =
+      typeof retryId === "string" && retryId
+        ? await retryUpload(file, retryId, department, browserPrivacy)
+        : await processUpload(file, documentType, department, browserPrivacy);
+    return NextResponse.json(result, { status: 201 });
+  } catch (error) {
+    return fail(error);
+  }
+}
+function fail(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
+  if (message === "AUTH_REQUIRED")
+    return NextResponse.json(
+      { error: "로그인이 필요합니다." },
+      { status: 401 },
+    );
+  if (message === "ACCOUNT_NOT_APPROVED")
+    return NextResponse.json(
+      { error: "관리자 승인 후 이용할 수 있습니다." },
+      { status: 403 },
+    );
+  if (message.startsWith("DUPLICATE_FILE:"))
+    return NextResponse.json(
+      {
+        error: `이미 등록된 파일입니다: ${message.split(":").slice(1).join(":")}`,
+      },
+      { status: 409 },
+    );
+  if (message === "SUPABASE_NOT_CONFIGURED")
+    return NextResponse.json(
+      {
+        error: "Supabase 연결 정보가 아직 설정되지 않았습니다.",
+        code: message,
+      },
+      { status: 503 },
+    );
+  if (message === "OPENAI_NOT_CONFIGURED")
+    return NextResponse.json(
+      { error: "OpenAI API 키가 아직 설정되지 않았습니다.", code: message },
+      { status: 503 },
+    );
+  if (message.startsWith("BROWSER_PRIVACY_"))
+    return NextResponse.json(
+      {
+        error:
+          "브라우저 개인정보 보호 결과를 확인할 수 없습니다. 파일을 다시 선택해 주세요.",
+        code: message,
+      },
+      { status: 422 },
+    );
+  if (message.startsWith("OUTBOUND_PRIVACY_BLOCKED"))
+    return NextResponse.json(
+      {
+        error:
+          "외부 AI 전송 예정자료에 개인정보가 남아 있어 처리를 중단했습니다.",
+        code: "OUTBOUND_PRIVACY_BLOCKED",
+      },
+      { status: 422 },
+    );
+  if (message.startsWith("COMPLAINT_SECTION_EXTRACTION_FAILED"))
+    return NextResponse.json(
+      {
+        error:
+          "PDF에서 민원 질의 또는 답변을 분리하지 못했습니다. 원문은 외부 AI로 전송되지 않았습니다.",
+        code: "COMPLAINT_SECTION_EXTRACTION_FAILED",
+      },
+      { status: 422 },
+    );
+  return NextResponse.json({ error: message }, { status: 500 });
+}
