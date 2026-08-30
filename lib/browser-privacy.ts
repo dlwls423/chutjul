@@ -171,25 +171,29 @@ export async function preparePdfInBrowser(
           ),
       });
       onProgress(
-        "로컬 AI가 법적 쟁점과 답변 요청사항만 정리하고 있습니다.",
+        "로컬 AI가 핵심 내용을 정리하고 있습니다. 최대 20초 후 빠른 요약으로 전환합니다.",
         64,
       );
-      const result = await engine.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content:
-              "개인정보가 마스킹된 한국어 민원을 구조화한다. 원문에 없는 사실을 만들지 말고 JSON만 출력한다. 키는 purpose 문자열, essentialFacts 문자열 배열, legalQuestions 문자열 배열, requestedAnswer 문자열 배열, uncertainties 문자열 배열이다.",
-          },
-          { role: "user", content: first.value.slice(0, 12000) },
-        ],
-        temperature: 0.1,
-        max_tokens: 700,
-        response_format: { type: "json_object" },
-      });
+      const completion = engine.chat.completions.create({
+          messages: [
+            {
+              role: "system",
+              content:
+                "개인정보가 마스킹된 한국어 민원에서 법적 쟁점과 답변 요청사항만 짧게 구조화한다. 원문에 없는 사실을 만들지 말고 JSON만 출력한다. 키는 purpose 문자열, essentialFacts 문자열 배열, legalQuestions 문자열 배열, requestedAnswer 문자열 배열, uncertainties 문자열 배열이다. 각 배열은 최대 3개, 각 문장은 100자 이내로 작성한다.",
+            },
+            { role: "user", content: first.value.slice(0, 4000) },
+          ],
+          temperature: 0,
+          max_tokens: 280,
+          response_format: { type: "json_object" },
+        });
+      void completion.finally(() => engine.unload()).catch(() => undefined);
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("LOCAL_MODEL_TIMEOUT")), 20000),
+      );
+      const result = await Promise.race([completion, timeout]);
       structured = jsonObject(result.choices[0]?.message?.content || "");
       localModel = MODEL;
-      await engine.unload();
     } catch {
       localModel = "브라우저 보안 요약기(WebGPU 대체 모드)";
     }
