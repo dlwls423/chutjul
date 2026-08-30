@@ -5,6 +5,7 @@ import {
   extractGuideToc,
   parseEpeopleComplaint,
 } from "./epeople-parser";
+import { detectResidualSensitiveInfo } from "./privacy-check";
 
 export type JobStatus =
   | "queued"
@@ -316,9 +317,6 @@ export async function storeOriginal(
     body: JSON.stringify({ storage_path: key }),
   });
   return key;
-}
-function detectResidualSensitiveInfo(text: string) {
-  return maskPersonalInfo(text).findings;
 }
 export type BrowserPrivacyResult = {
   sourceHash: string;
