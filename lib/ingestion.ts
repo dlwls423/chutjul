@@ -147,6 +147,24 @@ export async function deleteDocument(config: Config, id: string) {
   );
   return { deleted: true };
 }
+function storageObjectAlreadyMissing(status: number, body: string) {
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  try {
+    const parsed = JSON.parse(body) as {
+      statusCode?: string | number;
+      code?: string;
+      message?: string;
+    };
+    return (
+      Number(parsed.statusCode) === 404 ||
+      parsed.code === "NoSuchKey" ||
+      parsed.message === "Object not found"
+    );
+  } catch {
+    return /NoSuchKey|Object not found|"statusCode"\s*:\s*"?404/.test(body);
+  }
+}
 export async function deleteUpload(config: Config, jobId: string) {
   let files: {
     id: string;
@@ -173,9 +191,10 @@ export async function deleteUpload(config: Config, jobId: string) {
       `/rest/v1/rag_documents?source_file_id=eq.${encodeURIComponent(file.id)}`,
       { method: "DELETE" },
     );
-    for (const path of [file.storage_path, file.masked_storage_path].filter(
-      Boolean,
-    ) as string[]) {
+    const storagePaths = new Set(
+      [file.storage_path, file.masked_storage_path].filter(Boolean) as string[],
+    );
+    for (const path of storagePaths) {
       const res = await fetch(
         `${config.url}/storage/v1/object/${file.storage_bucket || config.bucket}/${path}`,
         {
@@ -186,8 +205,11 @@ export async function deleteUpload(config: Config, jobId: string) {
           },
         },
       );
-      if (!res.ok && res.status !== 404)
-        throw new Error(`STORAGE_DELETE_${res.status}: ${await res.text()}`);
+      if (!res.ok) {
+        const body = await res.text();
+        if (!storageObjectAlreadyMissing(res.status, body))
+          throw new Error(`STORAGE_DELETE_${res.status}: ${body}`);
+      }
     }
   }
   await supabase(
