@@ -1,3 +1,8 @@
 .browser-progress{align-items:center;background:#e8edf8;border-radius:999px;display:flex;height:10px;margin:14px auto 8px;overflow:visible;position:relative;width:min(80%,520px)}
 .browser-progress i{background:linear-gradient(90deg,#3155a5,#6583c6);border-radius:999px;height:100%;transition:width .25s ease}
 .browser-progress span{color:#41557d;font-size:12px;font-weight:700;margin-left:10px;white-space:nowrap}
+.upload-notice{align-items:flex-start;border:1px solid;border-radius:10px;display:flex;justify-content:space-between;margin:-6px 0 18px;padding:13px 15px;text-align:left}
+.upload-notice.success{background:#eef9f3;border-color:#b8dfca;color:#246c4a}
+.upload-notice.error{background:#fff2f2;border-color:#efc0c0;color:#9d3535}
+.upload-notice div{min-width:0}.upload-notice strong{font-size:11px;margin-right:9px}.upload-notice span{font-size:10px;font-weight:700;overflow-wrap:anywhere}.upload-notice p{font-size:10px;line-height:1.5;margin:5px 0 0;white-space:pre-wrap}
+.upload-notice button{background:transparent;border:0;color:inherit;cursor:pointer;font-size:18px;line-height:1;padding:0 0 0 12px}

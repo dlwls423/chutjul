@@ -44,6 +44,7 @@ type JobDetail = {
   documents?: RagDocument[];
   chunks?: Record<string, unknown>[];
 };
+type UploadNotice = { kind: "success" | "error"; fileName: string; message: string } | null;
 const departments = [
   "범정부마이데이터추진단",
   "개인정보보호정책과",
@@ -118,7 +119,9 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadNotice, setUploadNotice] = useState<UploadNotice>(null);
   const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const refreshSequence = useRef(0);
   const [retryId, setRetryId] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   function flash(s: string) {
@@ -126,13 +129,14 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
     setTimeout(() => setToast(""), 3000);
   }
   async function refresh() {
+    const sequence = ++refreshSequence.current;
     try {
       const r = await fetch(
         `/api/uploads?department=${encodeURIComponent(currentDepartment)}`,
         { cache: "no-store" },
       );
       const j = await r.json();
-      if (r.ok) setJobs(j.jobs || []);
+      if (r.ok && sequence === refreshSequence.current) setJobs(j.jobs || []);
     } catch {}
   }
   useEffect(() => {
@@ -144,6 +148,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   async function upload(f?: File) {
     if (!f) return;
     setUploading(true);
+    setUploadNotice(null);
     const form = new FormData();
     setUploadStage("파일을 확인하고 있습니다.");
     setUploadProgress(4);
@@ -166,11 +171,18 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
       const r = await fetch("/api/uploads", { method: "POST", body: form });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "업로드에 실패했습니다.");
+      setUploadNotice({
+        kind: "success",
+        fileName: f.name,
+        message: `저장 완료 · 문서 ${j.documentCount || 0}건 · 청크 ${j.chunkCount || 0}개`,
+      });
       flash(
         `${f.name} 처리 완료 · 문서 ${j.documentCount || 0}건 · 청크 ${j.chunkCount || 0}개`,
       );
     } catch (e) {
-      flash(e instanceof Error ? e.message : "업로드에 실패했습니다.");
+      const message=e instanceof Error ? e.message : "업로드에 실패했습니다.";
+      setUploadNotice({ kind: "error", fileName: f.name, message });
+      flash(message);
     } finally {
       setUploading(false);
       setUploadStage("");
@@ -261,6 +273,8 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             uploading={uploading}
             uploadStage={uploadStage}
             uploadProgress={uploadProgress}
+            uploadNotice={uploadNotice}
+            clearUploadNotice={() => setUploadNotice(null)}
             jobs={jobs}
             retry={retry}
             refresh={refresh}
@@ -697,6 +711,8 @@ function Data({
   uploading,
   uploadStage,
   uploadProgress,
+  uploadNotice,
+  clearUploadNotice,
   jobs,
   retry,
   refresh,
@@ -707,6 +723,8 @@ function Data({
   uploading: boolean;
   uploadStage: string;
   uploadProgress: number;
+  uploadNotice: UploadNotice;
+  clearUploadNotice: () => void;
   jobs: UploadJob[];
   retry: (id: string) => void;
   refresh: () => Promise<void>;
@@ -877,6 +895,16 @@ function Data({
           {uploading ? "처리 중…" : "파일 선택"}
         </button>
       </section>
+      {uploadNotice && (
+        <div className={`upload-notice ${uploadNotice.kind}`} role="status">
+          <div>
+            <strong>{uploadNotice.kind === "success" ? "처리 완료" : "처리 실패"}</strong>
+            <span>{uploadNotice.fileName}</span>
+            <p>{uploadNotice.message}</p>
+          </div>
+          <button type="button" onClick={clearUploadNotice} aria-label="처리 결과 닫기">×</button>
+        </div>
+      )}
       <section className="file-section">
         <div className="file-head">
           <div>
