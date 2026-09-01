@@ -80,8 +80,27 @@ function mask(text: string) {
     /(?:성명|이름|민원인|대표자|담당자|처리자)\s*[:：]?\s*[가-힣]{2,5}/g,
     (v) => v.replace(/[가-힣]{2,5}$/, "[성명]"),
   );
+  value = apply(
+    value,
+    "직함 인접 성명",
+    /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g,
+    "[성명]",
+  );
+  value = apply(
+    value,
+    "직함 인접 성명",
+    /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g,
+    (v) => v.replace(/[가-힣]{2,4}$/, "[성명]"),
+  );
+  value = apply(
+    value,
+    "법인명",
+    /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g,
+    "[법인명]",
+  );
   return { value, counts };
 }
+export const maskSensitiveText = mask;
 function redactionRanges(text: string) {
   const ranges: { start: number; end: number }[] = [];
   const rules = [
@@ -91,6 +110,9 @@ function redactionRanges(text: string) {
     /\b\d{3}[-\s]?\d{2}[-\s]?\d{5}\b/g,
     /\b[12]AA-\d{4}-\d{6,}\b/gi,
     /(?:성명|이름|민원인|대표자|담당자|처리자)\s*[:：]?\s*[가-힣]{2,5}/g,
+    /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g,
+    /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g,
+    /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g,
     /(?:주소|소재지|거주지)\s*[:：]?\s*[^\n]{5,80}/g,
     /\d{1,2}:\d{2}\s+[가-힣]{2,4}(?=\s|$)/g,
   ];
@@ -248,12 +270,16 @@ function fallbackSummary(masked: string): Structured {
     requests.push("관련 법령·지침과 구체적인 근거 안내 요청");
   if (!requests.length)
     requests.push("관련 법령과 적용 기준에 근거한 답변 요청");
+  const detailedFacts=masked
+    .replace(/\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명)\]/g, "")
+    .replace(/^(?:안녕하세요|안녕하십니까)[.。,]?\s*/i, "")
+    .split(/(?<=[.!?다요])\s+|\n+/)
+    .map(cleanPoint)
+    .filter((sentence)=>sentence.length>=18&&!/^(?:감사합니다|연락|회신)/.test(sentence))
+    .slice(0,6);
   return {
     purpose: issues[0],
-    essentialFacts: (facts.length
-      ? facts
-      : ["개별 식별정보를 제외한 업무 구조를 기준으로 법적 검토가 필요함"]
-    ).slice(0, 4),
+    essentialFacts: [...facts,...detailedFacts].filter((v,i,a)=>a.indexOf(v)===i).slice(0,6),
     legalQuestions: issues.slice(0, 3),
     requestedAnswer: requests.slice(0, 3),
     uncertainties: [],
@@ -262,7 +288,7 @@ function fallbackSummary(masked: string): Structured {
 function cleanPoint(value: unknown) {
   return String(value || "")
     .replace(
-      /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호)\]/g,
+      /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명)\]/g,
       "",
     )
     .replace(/\b[12]AA-\d{4}-\d{6,}\b/gi, "")
@@ -270,7 +296,7 @@ function cleanPoint(value: unknown) {
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\s+/g, " ")
     .replace(/^[\s:：,.-]+|[\s:：,.-]+$/g, "")
-    .slice(0, 120);
+    .slice(0, 180);
 }
 function normalizeStructured(
   value: Partial<Structured>,
@@ -281,7 +307,7 @@ function normalizeStructured(
     const cleaned = source
       .map(cleanPoint)
       .filter((v) => v.length >= 5)
-      .slice(0, 3);
+      .slice(0, 6);
     return cleaned.length ? cleaned : backup;
   };
   return {
@@ -374,17 +400,17 @@ export async function preparePdfInBrowser(
           {
             role: "system",
             content:
-              "개인정보가 마스킹된 한국어 민원을 외부 AI 전송용 최소정보로 다시 작성한다. 원문 문장을 복사하지 말고 사건번호·날짜·연락처·인물·기관명·개별 서술을 제거한다. 답변 판단에 필요한 업무 구조, 법적 쟁점, 답변 요청사항만 일반화된 새 문장으로 작성한다. 원문에 없는 사실은 만들지 말고 JSON만 출력한다. 키는 purpose 문자열, essentialFacts 문자열 배열, legalQuestions 문자열 배열, requestedAnswer 문자열 배열, uncertainties 문자열 배열이다. 각 배열은 최대 3개, 각 문장은 100자 이내로 작성한다.",
+              "개인정보와 법인명이 마스킹된 한국어 민원을 외부 AI 전송용으로 재작성한다. 사건번호·날짜·연락처·인명·법인명·주소 등 식별정보는 모두 제거하되, 서비스 운영 방식, 데이터 흐름, 당사자가 제시한 전제, 예외 조건, 법적 쟁점과 답변 요청 맥락은 충분히 보존한다. 지나치게 짧게 요약하지 말고 원문에 없는 사실은 만들지 않는다. JSON만 출력하며 키는 purpose 문자열, essentialFacts 문자열 배열, legalQuestions 문자열 배열, requestedAnswer 문자열 배열, uncertainties 문자열 배열이다. essentialFacts는 최대 6개, 나머지 배열은 최대 4개, 각 문장은 180자 이내로 작성한다.",
           },
-          { role: "user", content: first.value.slice(0, 4000) },
+          { role: "user", content: first.value.slice(0, 7000) },
         ],
         temperature: 0,
-        max_tokens: 280,
+        max_tokens: 650,
         response_format: { type: "json_object" },
       });
       void completion.finally(() => engine.unload()).catch(() => undefined);
       const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("LOCAL_MODEL_TIMEOUT")), 20000),
+        setTimeout(() => reject(new Error("LOCAL_MODEL_TIMEOUT")), 35000),
       );
       const result = await Promise.race([completion, timeout]);
       const candidate = normalizeStructured(
@@ -408,7 +434,7 @@ export async function preparePdfInBrowser(
     structured = safeFallback;
     outbound = outboundOf(structured);
   }
-  const second = mask(outbound.slice(0, 1400));
+  const second = mask(outbound.slice(0, 3200));
   if (mask(second.value).value !== second.value)
     throw new Error("요약문 개인정보 재검사에 실패했습니다.");
   onProgress("개인정보가 제거된 PDF 사본을 생성하고 있습니다.", 82);
@@ -432,7 +458,7 @@ export async function preparePdfInBrowser(
     piiSummary: { ...first.counts, ...second.counts },
     structuredComplaint: structured,
     localModel,
-    schemaVersion: 8,
+    schemaVersion: 9,
     maskedRecord: safeRecord,
   };
   return { privacy, maskedPdf };
