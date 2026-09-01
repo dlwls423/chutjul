@@ -1,0 +1,118 @@
+.table-wrap tbody tr {
+  border-bottom: 1px solid #edf0f4;
+}
+.table-wrap tbody tr:last-child {
+  border-bottom: 0;
+}
+.table-wrap tbody td {
+  border-bottom: 0;
+  vertical-align: middle;
+}
+.table-wrap tbody td:first-child {
+  min-width: 260px;
+}
+.table-wrap tbody td:first-child > div {
+  min-width: 0;
+}
+.table-wrap tbody td:first-child strong {
+  overflow-wrap: anywhere;
+}
+.data-page {
+  min-width: 0;
+}
+.data-page .pipeline-note {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 1050px) {
+  .table-wrap {
+    background: #f7f9fc;
+    overflow: visible;
+    padding: 10px;
+  }
+  .table-wrap table,
+  .table-wrap tbody {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .table-wrap thead {
+    display: none;
+  }
+  .table-wrap tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .table-wrap tbody tr {
+    background: #fff;
+    border: 1px solid #e1e7ef !important;
+    border-radius: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    overflow: hidden;
+    padding: 11px 12px;
+  }
+  .table-wrap tbody td {
+    align-items: flex-start;
+    border: 0 !important;
+    display: flex !important;
+    gap: 7px;
+    min-width: 0 !important;
+    padding: 7px 4px !important;
+  }
+  .table-wrap tbody td::before {
+    color: #8793a3;
+    content: attr(data-label);
+    display: block;
+    flex: 0 0 62px;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .table-wrap tbody td:first-child {
+    border-bottom: 1px solid #edf0f4 !important;
+    grid-column: 1 / -1;
+    padding-bottom: 11px !important;
+  }
+  .table-wrap tbody td:first-child::before {
+    display: none;
+  }
+  .table-wrap tbody td:nth-child(3),
+  .table-wrap tbody td:nth-child(5),
+  .table-wrap tbody td:last-child {
+    grid-column: 1 / -1;
+  }
+  .table-wrap tbody td:last-child {
+    padding-top: 10px !important;
+  }
+  .table-wrap .row-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .table-wrap .row-actions button {
+    min-height: 38px;
+  }
+  .table-wrap .status-cell {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .data-page .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .data-page .metric {
+    min-width: 0;
+    padding: 12px 10px;
+  }
+  .data-page .metric > span {
+    height: 30px;
+    width: 30px;
+  }
+  .data-page .metric strong {
+    font-size: 18px;
+  }
+}

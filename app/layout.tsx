@@ -5,6 +5,7 @@ import './extras.css';
 import './pipeline.css';
 import InteractionFeedback from '../components/InteractionFeedback';
 import '../components/Responsive.css';
+import '../components/DataResponsive.css';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',

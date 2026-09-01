@@ -37,4 +37,7 @@ next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
+/output/
 /work/
+/privacy-gateway/cloudflared.exe
+__pycache__/
