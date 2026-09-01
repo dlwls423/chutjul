@@ -17,8 +17,16 @@
 .table-wrap tbody td:first-child strong {
   overflow-wrap: anywhere;
 }
+.data-page {
+  min-width: 0;
+}
+.data-page .pipeline-note {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
 
-@media (max-width: 760px) {
+@media (max-width: 1050px) {
   .table-wrap {
     background: #f7f9fc;
     overflow: visible;
