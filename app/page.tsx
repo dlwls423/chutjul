@@ -943,7 +943,7 @@ function Data({
             <tbody>
               {filtered.map((j) => (
                 <tr key={j.id}>
-                  <td>
+                  <td data-label="파일명">
                     <span
                       className={
                         "file-icon " +
@@ -961,17 +961,17 @@ function Data({
                       <small>{formatBytes(j.file_size)}</small>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="자료 유형">
                     <span className="type-chip">
                       {labelType(j.document_type)}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="추출 결과">
                     {j.status === "completed"
                       ? `문서 ${j.document_count || 0}건 · 청크 ${j.chunk_count || 0}개`
                       : j.error_message || `${j.progress || 0}% 진행 중`}
                   </td>
-                  <td>
+                  <td data-label="처리 상태">
                     <div className="status-cell">
                       <span className={"status " + statusClass(j.status)}>
                         {statusLabel(j.status)}
@@ -983,8 +983,8 @@ function Data({
                       )}
                     </div>
                   </td>
-                  <td>{formatDate(j.created_at)}</td>
-                  <td>
+                  <td data-label="업로드 일시">{formatDate(j.created_at)}</td>
+                  <td data-label="작업">
                     <div className="row-actions">
                       <button
                         className="view-btn"
