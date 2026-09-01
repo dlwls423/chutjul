@@ -1,5 +1,5 @@
 "use client";
-import { extractText, extractTextItems, getDocumentProxy } from "unpdf";
+import { extractText, getDocumentProxy } from "unpdf";
 import { PDFDocument } from "pdf-lib";
 import { cleanExtractedText, parseEpeopleComplaint } from "./epeople-parser";
 
@@ -105,12 +105,13 @@ async function createMaskedPdf(
   bytes: ArrayBuffer,
   onProgress: (message: string, progress: number) => void,
 ) {
-  const [proxy, textItems] = await Promise.all([
-    getDocumentProxy(new Uint8Array(bytes.slice(0))),
-    extractTextItems(new Uint8Array(bytes.slice(0))),
-  ]);
+  // Keep one PDF.js document alive for both rendering and text coordinates.
+  // Opening a second document through extractTextItems can destroy a shared
+  // browser worker while the first document is still rendering.
+  const proxy = await getDocumentProxy(new Uint8Array(bytes.slice(0)));
   const output = await PDFDocument.create();
-  for (let pageNumber = 1; pageNumber <= proxy.numPages; pageNumber++) {
+  try {
+    for (let pageNumber = 1; pageNumber <= proxy.numPages; pageNumber++) {
     onProgress(
       `PDF ${pageNumber}/${proxy.numPages}쪽 개인정보를 가리고 있습니다.`,
       18 + Math.round((pageNumber / proxy.numPages) * 10),
@@ -123,7 +124,16 @@ async function createMaskedPdf(
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("BROWSER_CANVAS_UNAVAILABLE");
     await page.render({ canvas, canvasContext: context, viewport }).promise;
-    const items = textItems.items[pageNumber - 1] || [];
+    const textContent = await page.getTextContent();
+    const items = textContent.items
+      .filter((item): item is typeof item & { str: string; transform: number[]; width: number; height: number } => "str" in item)
+      .map((item) => ({
+        str: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width,
+        height: item.height,
+      }));
     if (!items.some((item) => item.str.trim()))
       throw new Error(
         "텍스트를 확인할 수 없는 스캔 페이지가 있어 원본 저장을 차단했습니다. OCR 처리된 PDF로 다시 시도해 주세요.",
@@ -171,9 +181,17 @@ async function createMaskedPdf(
       width: outPage.getWidth(),
       height: outPage.getHeight(),
     });
+    canvas.width = 0;
+    canvas.height = 0;
+    }
+    return await output.save();
+  } finally {
+    // Cleanup failures must never turn a successfully redacted PDF into an
+    // upload failure. PDF.js versions expose cleanup through different paths.
+    try {
+      await proxy.destroy();
+    } catch {}
   }
-  await proxy.destroy();
-  return output.save();
 }
 function maskedRecord(row: Record<string, string>) {
   return Object.fromEntries(
