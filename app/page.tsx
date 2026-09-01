@@ -45,6 +45,11 @@ type JobDetail = {
   chunks?: Record<string, unknown>[];
 };
 type UploadNotice = { kind: "success" | "error"; fileName: string; message: string } | null;
+type SearchItem = {
+  id: string; title: string; documentType: string; department?: string; category?: string;
+  createdAt: string; snippet: string; question: string; answer: string; content: string;
+  score: number; matchedTerms: string[]; legalReferences: string[];
+};
 const departments = [
   "범정부마이데이터추진단",
   "개인정보보호정책과",
@@ -263,7 +268,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             <div className="scope-notice">
               🔒 검색 범위: <b>{currentDepartment}</b> 자료만 표시합니다.
             </div>
-            <Search query={query} setQuery={setQuery} setModal={setModal} />
+            <Search query={query} setQuery={setQuery} department={currentDepartment} />
           </>
         )}{" "}
         {view === "data" && (
@@ -596,33 +601,62 @@ function ResultLaws({ setModal }: { setModal: (s: string) => void }) {
 function Search({
   query,
   setQuery,
-  setModal,
+  department,
 }: {
   query: string;
   setQuery: (s: string) => void;
-  setModal: (s: string) => void;
+  department: string;
 }) {
   const [tab, setTab] = useState("전체");
+  const [results, setResults] = useState<SearchItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [searchedQuery, setSearchedQuery] = useState("");
+  const [sort, setSort] = useState("관련도순");
+  const [category, setCategory] = useState("전체");
+  const [legal, setLegal] = useState("전체 법령");
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [selected, setSelected] = useState<SearchItem | null>(null);
+  async function runSearch(value = query) {
+    const word = value.trim();
+    if (!word) { setError("검색어를 입력해 주세요."); return; }
+    setLoading(true); setError(""); setSelected(null);
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(word)}&department=${encodeURIComponent(department)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "검색 중 오류가 발생했습니다.");
+      setResults(payload.results || []); setSearchedQuery(word); setTab("전체");
+      setCategory("전체"); setLegal("전체 법령"); setVisibleCount(20);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "검색 중 오류가 발생했습니다."); }
+    finally { setLoading(false); }
+  }
+  const typeForTab = (item: SearchItem) => tab === "전체" || (tab === "유사민원" && item.documentType === "complaint") || (tab === "법령" && item.documentType === "law") || (tab === "안내서" && item.documentType === "guide");
+  const filtered = results.filter((item) => typeForTab(item) && (category === "전체" || item.category === category) && (legal === "전체 법령" || item.legalReferences.includes(legal)));
+  const sorted = [...filtered].sort((a, b) => sort === "최신순" ? b.createdAt.localeCompare(a.createdAt) : b.score - a.score || b.createdAt.localeCompare(a.createdAt));
+  const counts = { 전체: results.length, 유사민원: results.filter((x) => x.documentType === "complaint").length, 법령: results.filter((x) => x.documentType === "law").length, 안내서: results.filter((x) => x.documentType === "guide").length };
+  const categories = [...new Set(results.map((x) => x.category).filter(Boolean))] as string[];
+  const laws = [...new Set(results.flatMap((x) => x.legalReferences))];
+  const recommend = (word: string) => { setQuery(word); void runSearch(word); };
   return (
     <div className="search-page">
       <div className="search-hero">
         <span className="eyebrow">KNOWLEDGE SEARCH</span>
         <h2>어떤 자료를 찾고 계신가요?</h2>
         <p>문장으로 질문하거나 찾고 싶은 단어를 입력해 보세요.</p>
-        <div className="big-search">
+        <form className="big-search" onSubmit={(event) => { event.preventDefault(); void runSearch(); }}>
           <span>⌕</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button>검색</button>
-        </div>
+          <input aria-label="통합 검색어" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="검색할 단어나 문장을 입력하세요" />
+          <button type="submit" disabled={loading}>{loading ? "검색 중…" : "검색"}</button>
+        </form>
         <div className="suggest">
           <span>추천 검색</span>
-          <button onClick={() => setQuery("개인정보 전송요구권")}>
+          <button onClick={() => recommend("개인정보 전송요구권")}>
             개인정보 전송요구권
           </button>
-          <button onClick={() => setQuery("허가 처리기간")}>
+          <button onClick={() => recommend("허가 처리기간")}>
             허가 처리기간
           </button>
-          <button onClick={() => setQuery("마이데이터 철회")}>
+          <button onClick={() => recommend("마이데이터 철회")}>
             마이데이터 철회
           </button>
         </div>
@@ -631,79 +665,97 @@ function Search({
         <div className="filters">
           <label>
             부서
-            <select>
-              <option>마이데이터추진단</option>
-              <option>전체 부서</option>
+            <select disabled value={department}>
+              <option>{department}</option>
             </select>
           </label>
           <label>
             업무 분류
-            <select>
+            <select value={category} onChange={(e) => setCategory(e.target.value)}>
               <option>전체</option>
-              <option>사업자 허가</option>
+              {categories.map((value) => <option key={value}>{value}</option>)}
             </select>
           </label>
           <label>
             소관 법령
-            <select>
+            <select value={legal} onChange={(e) => setLegal(e.target.value)}>
               <option>전체 법령</option>
-              <option>신용정보법</option>
+              {laws.map((value) => <option key={value}>{value}</option>)}
             </select>
           </label>
         </div>
         <div className="search-summary">
           <div>
-            <h3>“{query}” 검색 결과</h3>
-            <p>총 24건의 관련 자료를 찾았습니다.</p>
+            <h3>{searchedQuery ? `“${searchedQuery}” 검색 결과` : "통합 검색"}</h3>
+            <p>{searchedQuery ? `총 ${filtered.length}건의 일치 자료를 찾았습니다.` : `${department}에 저장된 민원·법령·안내서를 검색합니다.`}</p>
           </div>
-          <select>
+          <select value={sort} onChange={(e) => setSort(e.target.value)}>
             <option>관련도순</option>
             <option>최신순</option>
           </select>
         </div>
         <div className="tabs">
-          {["전체 24", "유사민원 12", "법령 7", "안내서 5"].map((x) => (
+          {(["전체", "유사민원", "법령", "안내서"] as const).map((name) => (
             <button
-              className={tab === x.split(" ")[0] ? "on" : ""}
-              onClick={() => setTab(x.split(" ")[0])}
-              key={x}
+              className={tab === name ? "on" : ""}
+              onClick={() => { setTab(name); setVisibleCount(20); }}
+              key={name}
             >
-              {x}
+              {name} {counts[name]}
             </button>
           ))}
         </div>
+        {error && <div className="search-state search-error">{error}</div>}
+        {loading && <div className="search-state">저장된 자료에서 검색어가 일치하는 내용을 찾고 있습니다.</div>}
+        {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
+        {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 모든 단어가 포함된 자료를 정확하게 찾아드립니다.</span></div>}
         <div className="search-results">
-          {cases.map((c, i) => (
-            <article key={c[1]}>
-              <div className="result-icon">{i === 2 ? "법" : "민"}</div>
+          {!loading && sorted.slice(0, visibleCount).map((item) => {
+            const kind = item.documentType === "complaint" ? "유사민원" : item.documentType === "law" ? "법령" : "안내서";
+            return <article key={item.id}>
+              <div className="result-icon">{kind.slice(0, 1)}</div>
               <div>
                 <div className="result-meta">
-                  <b>{i === 2 ? "법령" : "유사민원"}</b>
-                  <span>
-                    {c[3]} · {c[4]}
-                  </span>
-                  <em>{c[0]} 관련</em>
+                  <b>{kind}</b>
+                  <span>{item.createdAt?.slice(0, 10)} · {item.department}</span>
+                  <em>일치도 {Math.min(99, Math.max(1, Math.round(item.score)))}점</em>
                 </div>
-                <h4>{c[1]}</h4>
-                <p>
-                  {c[2]} <mark>처리기간</mark>과 관련한 주요 내용을 포함합니다.
-                </p>
+                <h4><Highlighted text={item.title} terms={item.matchedTerms} /></h4>
+                <p><Highlighted text={item.snippet} terms={item.matchedTerms} /></p>
                 <div className="tags">
-                  <span>마이데이터</span>
-                  <span>허가</span>
-                  <span>처리기한</span>
+                  {item.category && <span>{item.category}</span>}
+                  {item.matchedTerms.slice(0, 4).map((word) => <span key={word}>{word}</span>)}
                 </div>
               </div>
-              <button className="open" onClick={() => setModal(c[1])}>
-                원문 보기 ↗
+              <button className="open" onClick={() => setSelected(item)}>
+                상세 보기 ↗
               </button>
-            </article>
-          ))}
+            </article>;
+          })}
         </div>
-        <button className="load-more">결과 더보기</button>
+        {visibleCount < sorted.length && <button className="load-more" onClick={() => setVisibleCount((count) => count + 20)}>결과 더보기</button>}
       </div>
+      {selected && <div className="search-detail-backdrop" onMouseDown={() => setSelected(null)}>
+        <section className="search-detail" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="검색 결과 상세">
+          <header><div><span>{selected.documentType === "complaint" ? "유사민원" : selected.documentType === "law" ? "법령" : "안내서"}</span><h3><Highlighted text={selected.title} terms={selected.matchedTerms} /></h3><p>{selected.department} · {selected.createdAt?.slice(0, 10)}</p></div><button aria-label="닫기" onClick={() => setSelected(null)}>×</button></header>
+          <div className="search-detail-body">
+            {selected.question && <section><h4>민원 질의</h4><p><Highlighted text={selected.question} terms={selected.matchedTerms} /></p></section>}
+            {selected.answer && <section><h4>답변 내용</h4><p><Highlighted text={selected.answer} terms={selected.matchedTerms} /></p></section>}
+            {!selected.question && selected.content && <section><h4>자료 내용</h4><p><Highlighted text={selected.content} terms={selected.matchedTerms} /></p></section>}
+            {!!selected.legalReferences.length && <section><h4>관련 법령</h4><div className="tags">{selected.legalReferences.map((law) => <span key={law}>{law}</span>)}</div></section>}
+          </div>
+        </section>
+      </div>}
     </div>
   );
+}
+function Highlighted({ text, terms }: { text: string; terms: string[] }) {
+  if (!text || !terms.length) return <>{text}</>;
+  const escaped = terms.filter(Boolean).map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!escaped.length) return <>{text}</>;
+  const matcher = new RegExp(`(${escaped.join("|")})`, "gi");
+  const lookup = new Set(terms.map((term) => term.normalize("NFKC").toLocaleLowerCase("ko-KR")));
+  return <>{text.split(matcher).map((part, index) => lookup.has(part.normalize("NFKC").toLocaleLowerCase("ko-KR")) ? <mark key={index}>{part}</mark> : part)}</>;
 }
 function Data({
   inputRef,
