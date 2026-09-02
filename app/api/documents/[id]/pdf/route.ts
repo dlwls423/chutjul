@@ -7,6 +7,7 @@ type Doc = { id: string; source_file_id: string; document_type: string };
 type Source = { id: string; owning_department: string; storage_bucket: string | null; storage_path: string | null; masked_storage_path: string | null };
 function normalized(value: string) { return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/\s+/g, " ").trim(); }
 function excerpt(text: string, terms: string[]) { const clean = text.replace(/\s+/g, " ").trim(); const lower = normalized(clean); let at = -1; for (const term of terms) { const found = lower.indexOf(term); if (found >= 0 && (at < 0 || found < at)) at = found; } if (at < 0) return clean.slice(0, 360); const start = Math.max(0, at - 130); const end = Math.min(clean.length, at + 300); return `${start ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`; }
+function matchingSentences(text: string, terms: string[]) { const sentences = text.replace(/\r/g, "").split(/(?<=[.!?。])\s+|\n+/).map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean); const matches = sentences.filter((sentence) => terms.some((term) => normalized(sentence).includes(term))); return matches.length ? matches.slice(0, 4).join(" ") : excerpt(text, terms); }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -37,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const terms = [...new Set(normalized(query).split(" ").filter(Boolean))];
     const parsed = await extractText(new Uint8Array(await download.arrayBuffer()), { mergePages: false });
     const pages = Array.isArray(parsed.text) ? parsed.text : [parsed.text];
-    const matches = pages.map((text, index) => ({ pageNumber: index + 1, text: String(text) })).filter((page) => terms.some((term) => normalized(page.text).includes(term))).map((page) => ({ pageNumber: page.pageNumber, snippet: excerpt(page.text, terms), matchedTerms: terms.filter((term) => normalized(page.text).includes(term)) }));
+    const matches = pages.map((text, index) => ({ pageNumber: index + 1, text: String(text) })).filter((page) => terms.some((term) => normalized(page.text).includes(term))).map((page) => ({ pageNumber: page.pageNumber, snippet: matchingSentences(page.text, terms), matchedTerms: terms.filter((term) => normalized(page.text).includes(term)) }));
     return NextResponse.json({ pdfUrl, pageCount: parsed.totalPages, matches });
   } catch (error) {
     const message = error instanceof Error ? error.message : "PDF를 조회하지 못했습니다.";

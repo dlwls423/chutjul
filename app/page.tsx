@@ -5,7 +5,6 @@ import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
-import PdfSearchViewer from "../components/PdfSearchViewer";
 import { preparePdfInBrowser } from "../lib/browser-privacy";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
@@ -53,6 +52,8 @@ type SearchItem = {
   complaintMetadata: Record<string, unknown>;
   guideMatches: { pageNumber: number | null; snippet: string }[];
 };
+type SearchCache = { results: SearchItem[]; searchedQuery: string; tab: string; sort: string; category: string; legal: string; visibleCount: number };
+let searchCache: SearchCache | null = null;
 const departments = [
   "범정부마이데이터추진단",
   "개인정보보호정책과",
@@ -610,19 +611,20 @@ function Search({
   setQuery: (s: string) => void;
   department: string;
 }) {
-  const [tab, setTab] = useState("전체");
-  const [results, setResults] = useState<SearchItem[]>([]);
+  const [tab, setTab] = useState(searchCache?.tab || "전체");
+  const [results, setResults] = useState<SearchItem[]>(searchCache?.results || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [searchedQuery, setSearchedQuery] = useState("");
-  const [sort, setSort] = useState("관련도순");
-  const [category, setCategory] = useState("전체");
-  const [legal, setLegal] = useState("전체 법령");
-  const [visibleCount, setVisibleCount] = useState(20);
+  const [searchedQuery, setSearchedQuery] = useState(searchCache?.searchedQuery || "");
+  const [sort, setSort] = useState(searchCache?.sort || "관련도순");
+  const [category, setCategory] = useState(searchCache?.category || "전체");
+  const [legal, setLegal] = useState(searchCache?.legal || "전체 법령");
+  const [visibleCount, setVisibleCount] = useState(searchCache?.visibleCount || 20);
   const [selected, setSelected] = useState<SearchItem | null>(null);
   const [pdfData, setPdfData] = useState<{ pdfUrl: string; pageCount: number; matches: { pageNumber: number; snippet: string; matchedTerms: string[] }[] } | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [activePage, setActivePage] = useState(1);
+  useEffect(() => { searchCache = { results, searchedQuery, tab, sort, category, legal, visibleCount }; }, [results, searchedQuery, tab, sort, category, legal, visibleCount]);
   async function runSearch(value = query) {
     const word = value.trim();
     if (!word) { setError("검색어를 입력해 주세요."); return; }
@@ -761,7 +763,7 @@ function Search({
             {selected.documentType === "complaint" && <ComplaintSearchMetadata item={selected} />}
             {selected.question && <section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>민원 질의</h4><small>민원인이 요청한 내용</small></div></div><p><Highlighted text={selected.question} terms={selected.matchedTerms} /></p></section>}
             {selected.answer && <section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>답변 내용</h4><small>처리부서의 최종 답변</small></div></div><p><Highlighted text={selected.answer} terms={selected.matchedTerms} /></p></section>}
-            {selected.documentType === "guide" && <section className="guide-search-pages"><h4>검색어가 나온 페이지</h4>{pdfLoading ? <p>원본 PDF의 페이지를 찾고 있습니다…</p> : pdfData ? <><div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.length ? pdfData.matches.map((match) => <button className={activePage === match.pageNumber ? "on" : ""} key={match.pageNumber} onClick={() => setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span><Highlighted text={match.snippet} terms={match.matchedTerms} /></span></button>) : <p>PDF에서 일치 페이지를 찾지 못했습니다.</p>}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><span>검색어: <mark>{searchedQuery}</mark></span><a href={`${pdfData.pdfUrl}#page=${activePage}&search=${encodeURIComponent(searchedQuery)}&view=FitH`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><PdfSearchViewer url={pdfData.pdfUrl} pageNumber={activePage} terms={selected.matchedTerms} /></div></div></> : <p>PDF 조회 정보를 불러오지 못했습니다.</p>}</section>}
+            {selected.documentType === "guide" && <section className="guide-search-pages"><h4>검색어가 나온 문장</h4>{pdfLoading ? <p>원본 PDF의 페이지를 찾고 있습니다…</p> : pdfData ? <><div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.length ? pdfData.matches.map((match) => <button className={activePage === match.pageNumber ? "on" : ""} key={match.pageNumber} onClick={() => setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span><Highlighted text={match.snippet} terms={match.matchedTerms} /></span></button>) : <p>PDF에서 일치 문장을 찾지 못했습니다.</p>}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><span>검색어: <mark>{searchedQuery}</mark></span><a href={`${pdfData.pdfUrl}#page=${activePage}&search=${encodeURIComponent(searchedQuery)}&view=FitH`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><iframe key={`${selected.id}-${activePage}`} title={`${selected.title} ${activePage}쪽`} src={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`} /></div></div></> : <p>PDF 조회 정보를 불러오지 못했습니다.</p>}</section>}
             {!selected.question && selected.documentType !== "guide" && selected.content && <section><h4>자료 내용</h4><p><Highlighted text={selected.content} terms={selected.matchedTerms} /></p></section>}
             {!!selected.legalReferences.length && <section><h4>관련 법령</h4><div className="tags">{selected.legalReferences.map((law) => <span key={law}>{law}</span>)}</div></section>}
           </div>
