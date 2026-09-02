@@ -6,9 +6,6 @@ type SearchDocument = {
   category_major: string | null;
   category_middle: string | null;
   category_minor: string | null;
-  summary: string | null;
-  application_number: string | null;
-  receipt_number: string | null;
   question_original: string | null;
   answer_original: string | null;
   content_masked: string | null;
@@ -58,7 +55,7 @@ export async function keywordSearch(department: string, rawQuery: string) {
   const docs: SearchDocument[] = [];
   for (let offset = 0; offset < sources.length; offset += 40) {
     const ids = sources.slice(offset, offset + 40).map((source) => source.id).join(",");
-    docs.push(...await request<SearchDocument[]>(`/rest/v1/rag_documents?source_file_id=in.(${ids})&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,summary,application_number,receipt_number,question_original,answer_original,content_masked,metadata,created_at&order=created_at.desc&limit=500`));
+    docs.push(...await request<SearchDocument[]>(`/rest/v1/rag_documents?source_file_id=in.(${ids})&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,question_original,answer_original,content_masked,metadata,created_at&order=created_at.desc&limit=500`));
   }
   const chunks: SearchChunk[] = [];
   for (let offset = 0; offset < docs.length; offset += 40) {
@@ -69,7 +66,10 @@ export async function keywordSearch(department: string, rawQuery: string) {
   for (const chunk of chunks) byDocument.set(chunk.document_id, [...(byDocument.get(chunk.document_id) || []), chunk]);
   return docs.map((doc): KeywordSearchResult | null => {
     const docChunks = byDocument.get(doc.id) || [];
-    const fields = [doc.title, doc.summary || "", doc.application_number || "", doc.receipt_number || "", doc.question_original || "", doc.answer_original || "", doc.content_masked || "", ...docChunks.map((chunk) => chunk.content)];
+    const complaintMeta = doc.metadata?.complaint as Record<string, unknown> | undefined;
+    const searchMeta = doc.metadata?.search as Record<string, unknown> | undefined;
+    const metadataFields = [searchMeta?.summary, complaintMeta?.summary, complaintMeta?.application_number, complaintMeta?.receipt_number].filter((value): value is string => typeof value === "string");
+    const fields = [doc.title, ...metadataFields, doc.question_original || "", doc.answer_original || "", doc.content_masked || "", ...docChunks.map((chunk) => chunk.content)];
     const haystack = normalized(fields.join("\n"));
     const matchedTerms = terms.filter((term) => haystack.includes(term));
     if (!matchedTerms.length) return null;
