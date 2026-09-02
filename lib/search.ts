@@ -14,7 +14,7 @@ type SearchDocument = {
 };
 type SearchChunk = { document_id: string; content: string; metadata: Record<string, unknown> | null };
 type ScopedSource = { id: string };
-export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[] };
+export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[]; complaintMetadata: Record<string, unknown>; guideMatches: { pageNumber: number | null; snippet: string }[] };
 
 function config() {
   const url = process.env.SUPABASE_URL;
@@ -84,6 +84,7 @@ export async function keywordSearch(department: string, rawQuery: string) {
     score += matchedTerms.filter((term) => title.includes(term)).length * 15;
     const best = fields.find((field) => matchedTerms.some((term) => normalized(field).includes(term))) || doc.title;
     const legal = [...new Set(docChunks.flatMap((chunk) => Array.isArray(chunk.metadata?.legal_references) ? chunk.metadata.legal_references.map(String) : []))].slice(0, 8);
-    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: (doc.content_masked || "").slice(0, 12000), score, matchedTerms, legalReferences: legal };
+    const guideMatches = doc.document_type === "guide" ? docChunks.filter((chunk) => matchedTerms.some((term) => normalized(chunk.content).includes(term))).slice(0, 12).map((chunk) => ({ pageNumber: Number(chunk.metadata?.page_number) || null, snippet: snippet(chunk.content, matchedTerms) })) : [];
+    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: (doc.content_masked || "").slice(0, 12000), score, matchedTerms, legalReferences: legal, complaintMetadata: complaintMeta || {}, guideMatches };
   }).filter((item): item is KeywordSearchResult => item !== null).sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
 }

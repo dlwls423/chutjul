@@ -49,6 +49,8 @@ type SearchItem = {
   id: string; title: string; documentType: string; department?: string; category?: string;
   createdAt: string; snippet: string; question: string; answer: string; content: string;
   score: number; matchedTerms: string[]; legalReferences: string[];
+  complaintMetadata: Record<string, unknown>;
+  guideMatches: { pageNumber: number | null; snippet: string }[];
 };
 const departments = [
   "범정부마이데이터추진단",
@@ -617,6 +619,9 @@ function Search({
   const [legal, setLegal] = useState("전체 법령");
   const [visibleCount, setVisibleCount] = useState(20);
   const [selected, setSelected] = useState<SearchItem | null>(null);
+  const [pdfData, setPdfData] = useState<{ pdfUrl: string; pageCount: number; matches: { pageNumber: number; snippet: string; matchedTerms: string[] }[] } | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [activePage, setActivePage] = useState(1);
   async function runSearch(value = query) {
     const word = value.trim();
     if (!word) { setError("검색어를 입력해 주세요."); return; }
@@ -637,6 +642,18 @@ function Search({
   const categories = [...new Set(results.map((x) => x.category).filter(Boolean))] as string[];
   const laws = [...new Set(results.flatMap((x) => x.legalReferences))];
   const recommend = (word: string) => { setQuery(word); void runSearch(word); };
+  async function openResult(item: SearchItem) {
+    setSelected(item); setPdfData(null); setActivePage(1);
+    if (item.documentType !== "guide") return;
+    setPdfLoading(true);
+    try {
+      const response = await fetch(`/api/documents/${encodeURIComponent(item.id)}/pdf?q=${encodeURIComponent(searchedQuery)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "PDF를 불러오지 못했습니다.");
+      setPdfData(payload); setActivePage(payload.matches?.[0]?.pageNumber || 1);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "PDF를 불러오지 못했습니다."); }
+    finally { setPdfLoading(false); }
+  }
   return (
     <div className="search-page">
       <div className="search-hero">
@@ -722,12 +739,13 @@ function Search({
                 </div>
                 <h4><Highlighted text={item.title} terms={item.matchedTerms} /></h4>
                 <p><Highlighted text={item.snippet} terms={item.matchedTerms} /></p>
+                {item.documentType === "guide" && item.guideMatches.length > 0 && <div className="guide-hit-group"><b>본문 일치 결과 {item.guideMatches.length}개</b>{item.guideMatches.slice(0, 3).map((match, index) => <span key={`${match.pageNumber}-${index}`}>{match.pageNumber ? `${match.pageNumber}쪽 · ` : ""}<Highlighted text={match.snippet} terms={item.matchedTerms} /></span>)}</div>}
                 <div className="tags">
                   {item.category && <span>{item.category}</span>}
                   {item.matchedTerms.slice(0, 4).map((word) => <span key={word}>{word}</span>)}
                 </div>
               </div>
-              <button className="open" onClick={() => setSelected(item)}>
+              <button className="open" onClick={() => void openResult(item)}>
                 상세 보기 ↗
               </button>
             </article>;
@@ -739,15 +757,22 @@ function Search({
         <section className="search-detail" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="검색 결과 상세">
           <header><div><span>{selected.documentType === "complaint" ? "유사민원" : selected.documentType === "law" ? "법령" : "안내서"}</span><h3><Highlighted text={selected.title} terms={selected.matchedTerms} /></h3><p>{selected.department} · {selected.createdAt?.slice(0, 10)}</p></div><button aria-label="닫기" onClick={() => setSelected(null)}>×</button></header>
           <div className="search-detail-body">
+            {selected.documentType === "complaint" && <ComplaintSearchMetadata item={selected} />}
             {selected.question && <section><h4>민원 질의</h4><p><Highlighted text={selected.question} terms={selected.matchedTerms} /></p></section>}
             {selected.answer && <section><h4>답변 내용</h4><p><Highlighted text={selected.answer} terms={selected.matchedTerms} /></p></section>}
-            {!selected.question && selected.content && <section><h4>자료 내용</h4><p><Highlighted text={selected.content} terms={selected.matchedTerms} /></p></section>}
+            {selected.documentType === "guide" && <section className="guide-search-pages"><h4>검색어가 나온 페이지</h4>{pdfLoading ? <p>원본 PDF의 페이지를 찾고 있습니다…</p> : pdfData ? <><div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.length ? pdfData.matches.map((match) => <button className={activePage === match.pageNumber ? "on" : ""} key={match.pageNumber} onClick={() => setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span><Highlighted text={match.snippet} terms={match.matchedTerms} /></span></button>) : <p>PDF에서 일치 페이지를 찾지 못했습니다.</p>}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><span>검색어: <mark>{searchedQuery}</mark></span><a href={`${pdfData.pdfUrl}#page=${activePage}&search=${encodeURIComponent(searchedQuery)}`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><iframe title={`${selected.title} ${activePage}쪽`} src={`${pdfData.pdfUrl}#page=${activePage}&search=${encodeURIComponent(searchedQuery)}`} /></div></div></> : <p>PDF 조회 정보를 불러오지 못했습니다.</p>}</section>}
+            {!selected.question && selected.documentType !== "guide" && selected.content && <section><h4>자료 내용</h4><p><Highlighted text={selected.content} terms={selected.matchedTerms} /></p></section>}
             {!!selected.legalReferences.length && <section><h4>관련 법령</h4><div className="tags">{selected.legalReferences.map((law) => <span key={law}>{law}</span>)}</div></section>}
           </div>
         </section>
       </div>}
     </div>
   );
+}
+const complaintSearchLabels: [string, string][] = [["application_number", "신청번호"], ["receipt_number", "접수번호"], ["application_at", "신청일시"], ["received_at", "접수일시"], ["expected_completion_at", "처리완료 예정일"], ["summary", "민원요지"], ["handler_masked", "담당자"], ["department", "처리부서"], ["processor_masked", "처리자"], ["notification_at", "처리결과 통보일"], ["answer_confirmed_at", "민원인 답변 확인일"], ["application_channel", "신청경로"], ["complaint_kind", "민원종류"], ["processing_result", "처리구분"], ["public_status", "공개여부"], ["processing_period_days", "처리기간(일)"], ["notification_method", "답변 통지방식"]];
+function ComplaintSearchMetadata({ item }: { item: SearchItem }) {
+  const values = { ...item.complaintMetadata, department: item.department || item.complaintMetadata.department };
+  return <section><h4>민원 기본정보</h4><div className="search-complaint-meta">{complaintSearchLabels.map(([key, label]) => { const raw = values[key]; const value = Array.isArray(raw) ? raw.join(", ") : raw == null || raw === "" ? "—" : String(raw).replace("T", " ").replace(/\+00:00$/, ""); return <div className={key === "summary" ? "wide" : ""} key={key}><small>{label}</small><strong><Highlighted text={value} terms={item.matchedTerms} /></strong></div>; })}</div></section>;
 }
 function Highlighted({ text, terms }: { text: string; terms: string[] }) {
   if (!text || !terms.length) return <>{text}</>;
