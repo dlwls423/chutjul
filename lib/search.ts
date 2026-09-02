@@ -6,6 +6,9 @@ type SearchDocument = {
   category_major: string | null;
   category_middle: string | null;
   category_minor: string | null;
+  summary: string | null;
+  application_number: string | null;
+  receipt_number: string | null;
   question_original: string | null;
   answer_original: string | null;
   content_masked: string | null;
@@ -13,6 +16,7 @@ type SearchDocument = {
   created_at: string;
 };
 type SearchChunk = { document_id: string; content: string; metadata: Record<string, unknown> | null };
+type ScopedSource = { id: string };
 export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[] };
 
 function config() {
@@ -47,7 +51,15 @@ export async function keywordSearch(department: string, rawQuery: string) {
   const query = rawQuery.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 100);
   const terms = [...new Set(normalized(query).split(" ").filter(Boolean))];
   if (!terms.length) return [];
-  const docs = await request<SearchDocument[]>(`/rest/v1/rag_documents?department=eq.${encodeURIComponent(department)}&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,question_original,answer_original,content_masked,metadata,created_at&order=created_at.desc&limit=500`);
+  // rag_documents.department is the complaint's processing department. Access
+  // scope belongs to source_files.owning_department, so resolve source IDs first.
+  const sources = await request<ScopedSource[]>(`/rest/v1/source_files?owning_department=eq.${encodeURIComponent(department)}&select=id&limit=1000`);
+  if (!sources.length) return [];
+  const docs: SearchDocument[] = [];
+  for (let offset = 0; offset < sources.length; offset += 40) {
+    const ids = sources.slice(offset, offset + 40).map((source) => source.id).join(",");
+    docs.push(...await request<SearchDocument[]>(`/rest/v1/rag_documents?source_file_id=in.(${ids})&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,summary,application_number,receipt_number,question_original,answer_original,content_masked,metadata,created_at&order=created_at.desc&limit=500`));
+  }
   const chunks: SearchChunk[] = [];
   for (let offset = 0; offset < docs.length; offset += 40) {
     const ids = docs.slice(offset, offset + 40).map((doc) => doc.id).join(",");
@@ -57,19 +69,21 @@ export async function keywordSearch(department: string, rawQuery: string) {
   for (const chunk of chunks) byDocument.set(chunk.document_id, [...(byDocument.get(chunk.document_id) || []), chunk]);
   return docs.map((doc): KeywordSearchResult | null => {
     const docChunks = byDocument.get(doc.id) || [];
-    const fields = [doc.title, doc.question_original || "", doc.answer_original || "", doc.content_masked || "", ...docChunks.map((chunk) => chunk.content)];
+    const fields = [doc.title, doc.summary || "", doc.application_number || "", doc.receipt_number || "", doc.question_original || "", doc.answer_original || "", doc.content_masked || "", ...docChunks.map((chunk) => chunk.content)];
     const haystack = normalized(fields.join("\n"));
-    if (!terms.every((term) => haystack.includes(term))) return null;
+    const matchedTerms = terms.filter((term) => haystack.includes(term));
+    if (!matchedTerms.length) return null;
     const title = normalized(doc.title);
     const question = normalized(doc.question_original || "");
     const phrase = normalized(query);
-    let score = terms.reduce((sum, term) => sum + occurrences(haystack, term), 0);
+    let score = matchedTerms.reduce((sum, term) => sum + occurrences(haystack, term), 0);
+    score += Math.round((matchedTerms.length / terms.length) * 40);
     if (title.includes(phrase)) score += 100;
     else if (question.includes(phrase)) score += 60;
     else if (haystack.includes(phrase)) score += 35;
-    score += terms.filter((term) => title.includes(term)).length * 15;
-    const best = fields.find((field) => terms.some((term) => normalized(field).includes(term))) || doc.title;
+    score += matchedTerms.filter((term) => title.includes(term)).length * 15;
+    const best = fields.find((field) => matchedTerms.some((term) => normalized(field).includes(term))) || doc.title;
     const legal = [...new Set(docChunks.flatMap((chunk) => Array.isArray(chunk.metadata?.legal_references) ? chunk.metadata.legal_references.map(String) : []))].slice(0, 8);
-    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, terms), question: doc.question_original || "", answer: doc.answer_original || "", content: (doc.content_masked || "").slice(0, 12000), score, matchedTerms: terms, legalReferences: legal };
+    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: (doc.content_masked || "").slice(0, 12000), score, matchedTerms, legalReferences: legal };
   }).filter((item): item is KeywordSearchResult => item !== null).sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
 }

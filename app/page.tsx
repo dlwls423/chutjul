@@ -708,7 +708,7 @@ function Search({
         {error && <div className="search-state search-error">{error}</div>}
         {loading && <div className="search-state">저장된 자료에서 검색어가 일치하는 내용을 찾고 있습니다.</div>}
         {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
-        {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 모든 단어가 포함된 자료를 정확하게 찾아드립니다.</span></div>}
+        {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 단어가 제목·민원요지·질의·답변·본문에 포함된 자료를 찾아드립니다.</span></div>}
         <div className="search-results">
           {!loading && sorted.slice(0, visibleCount).map((item) => {
             const kind = item.documentType === "complaint" ? "유사민원" : item.documentType === "law" ? "법령" : "안내서";
