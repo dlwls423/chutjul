@@ -45,6 +45,7 @@ type JobDetail = {
   chunks?: Record<string, unknown>[];
 };
 type UploadNotice = { kind: "success" | "error"; fileName: string; message: string } | null;
+type BatchUploadItem = { fileName: string; status: "queued" | "processing" | "success" | "error"; message?: string };
 type SearchItem = {
   id: string; title: string; documentType: string; department?: string; category?: string;
   createdAt: string; snippet: string; question: string; answer: string; content: string;
@@ -129,6 +130,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const [uploadStage, setUploadStage] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadNotice, setUploadNotice] = useState<UploadNotice>(null);
+  const [uploadBatch, setUploadBatch] = useState<BatchUploadItem[]>([]);
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const refreshSequence = useRef(0);
   const [retryId, setRetryId] = useState("");
@@ -154,52 +156,59 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
     const timer = setInterval(refresh, 2000);
     return () => clearInterval(timer);
   }, [view, currentDepartment]);
-  async function upload(f?: File) {
-    if (!f) return;
+  async function upload(selected?: File[]) {
+    if (!selected?.length) return;
+    const uploadFiles = retryId ? selected.slice(0, 1) : selected;
     setUploading(true);
     setUploadNotice(null);
-    const form = new FormData();
-    setUploadStage("파일을 확인하고 있습니다.");
-    setUploadProgress(4);
-    try {
-      let uploadFile=f;
-      if (f.name.toLowerCase().endsWith(".pdf") && !f.name.includes("안내서")) {
-        const prepared = await preparePdfInBrowser(f, (message, progress) => {
-          setUploadStage(message);
-          setUploadProgress(progress);
-        });
-        uploadFile=prepared.maskedPdf;
-        form.append("browserPrivacy", JSON.stringify(prepared.privacy));
+    setUploadBatch(uploadFiles.map((file) => ({ fileName: file.name, status: "queued" })));
+    let successCount = 0;
+    let errorCount = 0;
+    for (let index = 0; index < uploadFiles.length; index++) {
+      const f = uploadFiles[index];
+      const updateItem = (patch: Partial<BatchUploadItem>) =>
+        setUploadBatch((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+      updateItem({ status: "processing", message: "파일 확인 중" });
+      const form = new FormData();
+      setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · 파일을 확인하고 있습니다.`);
+      setUploadProgress(4);
+      try {
+        let uploadFile=f;
+        if (f.name.toLowerCase().endsWith(".pdf") && !f.name.includes("안내서")) {
+          const prepared = await preparePdfInBrowser(f, (message, progress) => {
+            setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · ${message}`);
+            setUploadProgress(progress);
+            updateItem({ message });
+          });
+          uploadFile=prepared.maskedPdf;
+          form.append("browserPrivacy", JSON.stringify(prepared.privacy));
+        }
+        setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · 안전한 자료를 저장하고 있습니다.`);
+        setUploadProgress(84);
+        updateItem({ message: "저장 및 검색 데이터 생성 중" });
+        form.append("file", uploadFile);
+        form.append("documentType", "complaint");
+        form.append("department", currentDepartment);
+        if (retryId) form.append("retryJobId", retryId);
+        const r = await fetch("/api/uploads", { method: "POST", body: form });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "업로드에 실패했습니다.");
+        updateItem({ status: "success", message: `문서 ${j.documentCount || 0}건 · 청크 ${j.chunkCount || 0}개` });
+        successCount++;
+      } catch (e) {
+        updateItem({ status: "error", message: e instanceof Error ? e.message : "업로드에 실패했습니다." });
+        errorCount++;
       }
-      setUploadStage("마스킹된 PDF와 비식별 자료만 저장하고 있습니다.");
-      setUploadProgress(84);
-      form.append("file", uploadFile);
-      form.append("documentType", "complaint");
-      form.append("department", currentDepartment);
-      if (retryId) form.append("retryJobId", retryId);
-      const r = await fetch("/api/uploads", { method: "POST", body: form });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "업로드에 실패했습니다.");
-      setUploadNotice({
-        kind: "success",
-        fileName: f.name,
-        message: `저장 완료 · 문서 ${j.documentCount || 0}건 · 청크 ${j.chunkCount || 0}개`,
-      });
-      flash(
-        `${f.name} 처리 완료 · 문서 ${j.documentCount || 0}건 · 청크 ${j.chunkCount || 0}개`,
-      );
-    } catch (e) {
-      const message=e instanceof Error ? e.message : "업로드에 실패했습니다.";
-      setUploadNotice({ kind: "error", fileName: f.name, message });
-      flash(message);
-    } finally {
-      setUploading(false);
-      setUploadStage("");
-      setUploadProgress(0);
-      setRetryId("");
-      if (inputRef.current) inputRef.current.value = "";
       refresh();
     }
+    setUploadNotice({ kind: errorCount ? "error" : "success", fileName: uploadFiles.length === 1 ? uploadFiles[0].name : `${uploadFiles.length}개 파일`, message: `처리 완료 ${successCount}개${errorCount ? ` · 실패 ${errorCount}개` : ""}` });
+    flash(`파일 ${uploadFiles.length}개 처리 완료 · 성공 ${successCount}개${errorCount ? ` · 실패 ${errorCount}개` : ""}`);
+    setUploading(false);
+    setUploadStage("");
+    setUploadProgress(0);
+    setRetryId("");
+    if (inputRef.current) inputRef.current.value = "";
+    refresh();
   }
   function retry(id: string) {
     setRetryId(id);
@@ -283,7 +292,8 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             uploadStage={uploadStage}
             uploadProgress={uploadProgress}
             uploadNotice={uploadNotice}
-            clearUploadNotice={() => setUploadNotice(null)}
+            uploadBatch={uploadBatch}
+            clearUploadNotice={() => { setUploadNotice(null); setUploadBatch([]); }}
             jobs={jobs}
             retry={retry}
             refresh={refresh}
@@ -297,8 +307,9 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
         ref={inputRef}
         className="hidden-input"
         type="file"
+        multiple={!retryId}
         accept=".xlsx,.xls,.pdf"
-        onChange={(e) => upload(e.target.files?.[0])}
+        onChange={(e) => upload(Array.from(e.target.files || []))}
       />
     </main>
   );
@@ -799,6 +810,7 @@ function Data({
   uploadStage,
   uploadProgress,
   uploadNotice,
+  uploadBatch,
   clearUploadNotice,
   jobs,
   retry,
@@ -806,11 +818,12 @@ function Data({
   flash,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
-  upload: (f?: File) => void;
+  upload: (files?: File[]) => void;
   uploading: boolean;
   uploadStage: string;
   uploadProgress: number;
   uploadNotice: UploadNotice;
+  uploadBatch: BatchUploadItem[];
   clearUploadNotice: () => void;
   jobs: UploadJob[];
   retry: (id: string) => void;
@@ -964,7 +977,7 @@ function Data({
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
-          if (!uploading) upload(e.dataTransfer.files[0]);
+          if (!uploading) upload(Array.from(e.dataTransfer.files));
         }}
       >
         <div className="upload-icon">⇧</div>
@@ -974,7 +987,7 @@ function Data({
             : "새 민원 자료 업로드"}
         </h3>
         {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
-        <p>Excel 또는 PDF 파일을 끌어놓거나 클릭하여 선택하세요.</p>
+        <p>Excel 또는 PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
         <small>
           민원 원본은 서버·Storage·DB에 저장하지 않음 · 마스킹 PDF와 비식별 요약만 저장
         </small>
@@ -982,6 +995,22 @@ function Data({
           {uploading ? "처리 중…" : "파일 선택"}
         </button>
       </section>
+      {uploadBatch.length > 0 && (
+        <div className="upload-batch" aria-live="polite">
+          <div className="upload-batch-head">
+            <strong>파일별 처리 현황</strong>
+            <span>{uploadBatch.filter((item) => ["success", "error"].includes(item.status)).length}/{uploadBatch.length} 완료</span>
+          </div>
+          <div className="upload-batch-list">
+            {uploadBatch.map((item, index) => (
+              <div className={`upload-batch-item ${item.status}`} key={`${item.fileName}-${index}`}>
+                <i>{item.status === "success" ? "✓" : item.status === "error" ? "!" : item.status === "processing" ? "…" : String(index + 1)}</i>
+                <span><b>{item.fileName}</b><small>{item.message || "대기 중"}</small></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {uploadNotice && (
         <div className={`upload-notice ${uploadNotice.kind}`} role="status">
           <div>
