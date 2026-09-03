@@ -484,6 +484,30 @@ export function maskPersonalInfo(text: string) {
     });
   return { masked, findings };
 }
+
+/** Preserve an official answer verbatim except for the author signature at its end. */
+export function maskAnswerAttribution(text: string) {
+  const findings: { type: string; value: string }[] = [];
+  const start = Math.max(0, text.length - 800);
+  const head = text.slice(0, start);
+  let tail = text.slice(start);
+  const titles = "주무관|연구원|책임연구원|선임연구원|사무관";
+  tail = tail.replace(
+    new RegExp(`[가-힣]{2,5}\\s*(?=(?:${titles})(?:\\s|$|[,(（]))`, "g"),
+    (value) => {
+      findings.push({ type: "답변 작성자", value });
+      return "[비식별]";
+    },
+  );
+  tail = tail.replace(
+    new RegExp(`((?:${titles})\\s*[（(]?)((?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4})(?=[)）]?)`, "g"),
+    (_match, prefix: string, phone: string) => {
+      findings.push({ type: "답변 작성자 연락처", value: phone });
+      return `${prefix}[비식별]`;
+    },
+  );
+  return { masked: head + tail, findings };
+}
 export function chunkText(text: string, max = 900, overlap = 120) {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return [];
@@ -572,7 +596,9 @@ function maskRow(row: Row) {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [
       key,
-      maskPersonalInfo(value).masked,
+      key === "answer"
+        ? maskAnswerAttribution(value).masked
+        : maskPersonalInfo(value).masked,
     ]),
   );
 }
@@ -761,13 +787,25 @@ export async function persistRecords(
       .filter(Boolean)
       .join("\n\n");
     if (!original.trim()) continue;
-    const result = maskPersonalInfo(original);
-    totalPii += result.findings.length;
+    const questionResult = maskPersonalInfo(row.question || "");
+    const answerResult = maskAnswerAttribution(row.answer || "");
+    const contentResult = maskPersonalInfo(row.content || "");
+    const findings = [
+      ...questionResult.findings,
+      ...answerResult.findings,
+      ...contentResult.findings,
+    ];
+    const masked = [
+      row.question && `질문: ${questionResult.masked}`,
+      row.answer && `답변: ${answerResult.masked}`,
+      contentResult.masked,
+    ].filter(Boolean).join("\n\n");
+    totalPii += findings.length;
     prepared.push({
       row,
       original,
-      masked: result.masked,
-      findings: result.findings,
+      masked,
+      findings,
       rowNumber: i + 2,
     });
   }
@@ -784,7 +822,7 @@ export async function persistRecords(
       ? maskPersonalInfo(p.row.question).masked
       : null,
     answer_original: p.row.answer
-      ? maskPersonalInfo(p.row.answer).masked
+      ? maskAnswerAttribution(p.row.answer).masked
       : null,
     content_original: p.masked,
     content_masked: p.masked,

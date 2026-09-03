@@ -101,6 +101,29 @@ function mask(text: string) {
   return { value, counts };
 }
 export const maskSensitiveText = mask;
+export function maskAnswerAttribution(text: string) {
+  const counts: Record<string, number> = {};
+  const start = Math.max(0, text.length - 800);
+  const head = text.slice(0, start);
+  let tail = text.slice(start);
+  const titles = "주무관|연구원|책임연구원|선임연구원|사무관";
+  tail = tail.replace(
+    new RegExp(`[가-힣]{2,5}\\s*(?=(?:${titles})(?:\\s|$|[,(（]))`, "g"),
+    () => {
+      counts["답변 작성자"] = (counts["답변 작성자"] || 0) + 1;
+      return "[성명]";
+    },
+  );
+  tail = tail.replace(
+    new RegExp(`((?:${titles})\\s*[（(]?)((?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4})(?=[)）]?)`, "g"),
+    (_match, prefix: string) => {
+      counts["답변 작성자 연락처"] =
+        (counts["답변 작성자 연락처"] || 0) + 1;
+      return `${prefix}[전화번호]`;
+    },
+  );
+  return { value: head + tail, counts };
+}
 function redactionRanges(text: string) {
   const ranges: { start: number; end: number }[] = [];
   const rules = [
@@ -123,6 +146,20 @@ function redactionRanges(text: string) {
     }
   return ranges;
 }
+function answerAttributionRanges(text: string) {
+  const ranges: { start: number; end: number }[] = [];
+  const titles = "주무관|연구원|책임연구원|선임연구원|사무관";
+  const rules = [
+    new RegExp(`[가-힣]{2,5}\\s*(?=(?:${titles})(?:\\s|$|[,(（]))`, "g"),
+    new RegExp(`(?:${titles})\\s*[（(]?\\s*(?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}`, "g"),
+  ];
+  for (const rule of rules)
+    for (const found of text.matchAll(rule)) {
+      const start = found.index || 0;
+      ranges.push({ start, end: start + found[0].length });
+    }
+  return ranges;
+}
 async function createMaskedPdf(
   bytes: ArrayBuffer,
   onProgress: (message: string, progress: number) => void,
@@ -132,6 +169,7 @@ async function createMaskedPdf(
   // browser worker while the first document is still rendering.
   const proxy = await getDocumentProxy(new Uint8Array(bytes.slice(0)));
   const output = await PDFDocument.create();
+  let answerStarted = false;
   try {
     for (let pageNumber = 1; pageNumber <= proxy.numPages; pageNumber++) {
     onProgress(
@@ -166,7 +204,23 @@ async function createMaskedPdf(
       combined += `${item.str} `;
       return { start, end: start + item.str.length, item };
     });
-    const ranges = redactionRanges(combined);
+    const answerMarker = combined.search(/처리결과\s*(?:\(\s*답변내용\s*\)|답변내용)/);
+    let ranges: { start: number; end: number }[];
+    if (answerStarted) {
+      ranges = answerAttributionRanges(combined);
+    } else if (answerMarker >= 0) {
+      const answerStart = answerMarker + combined.slice(answerMarker).search(/답변내용/) + "답변내용".length;
+      ranges = [
+        ...redactionRanges(combined.slice(0, answerStart)),
+        ...answerAttributionRanges(combined.slice(answerStart)).map((range) => ({
+          start: range.start + answerStart,
+          end: range.end + answerStart,
+        })),
+      ];
+      answerStarted = true;
+    } else {
+      ranges = redactionRanges(combined);
+    }
     for (const entry of offsets) {
       if (
         !ranges.some(
@@ -218,7 +272,8 @@ async function createMaskedPdf(
 function maskedRecord(row: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => {
-      if (key === "question" || key === "answer" || key === "content")
+      if (key === "answer") return [key, maskAnswerAttribution(value).value];
+      if (key === "question" || key === "content")
         return [key, mask(value).value];
       if (/handler|processor|담당|처리자/i.test(key))
         return [key, mask(`담당자: ${value}`).value.replace(/^담당자:\s*/, "")];
