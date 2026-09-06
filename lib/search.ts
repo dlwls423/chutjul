@@ -14,6 +14,7 @@ type SearchDocument = {
 };
 type SearchChunk = { document_id: string; content: string; metadata: Record<string, unknown> | null };
 type ScopedSource = { id: string };
+import { searchCurrentLaws } from "./legal-search";
 export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[]; complaintMetadata: Record<string, unknown>; guideMatches: { pageNumber: number | null; snippet: string }[] };
 
 function config() {
@@ -51,7 +52,8 @@ export async function keywordSearch(department: string, rawQuery: string) {
   // rag_documents.department is the complaint's processing department. Access
   // scope belongs to source_files.owning_department, so resolve source IDs first.
   const sources = await request<ScopedSource[]>(`/rest/v1/source_files?owning_department=eq.${encodeURIComponent(department)}&select=id&limit=1000`);
-  if (!sources.length) return [];
+  const legalResults = await searchCurrentLaws(rawQuery, department);
+  if (!sources.length) return legalResults;
   const docs: SearchDocument[] = [];
   for (let offset = 0; offset < sources.length; offset += 40) {
     const ids = sources.slice(offset, offset + 40).map((source) => source.id).join(",");
@@ -64,7 +66,7 @@ export async function keywordSearch(department: string, rawQuery: string) {
   }
   const byDocument = new Map<string, SearchChunk[]>();
   for (const chunk of chunks) byDocument.set(chunk.document_id, [...(byDocument.get(chunk.document_id) || []), chunk]);
-  return docs.map((doc): KeywordSearchResult | null => {
+  const documentResults = docs.map((doc): KeywordSearchResult | null => {
     const docChunks = byDocument.get(doc.id) || [];
     const complaintMeta = doc.metadata?.complaint as Record<string, unknown> | undefined;
     const searchMeta = doc.metadata?.search as Record<string, unknown> | undefined;
@@ -86,5 +88,6 @@ export async function keywordSearch(department: string, rawQuery: string) {
     const legal = [...new Set(docChunks.flatMap((chunk) => Array.isArray(chunk.metadata?.legal_references) ? chunk.metadata.legal_references.map(String) : []))].slice(0, 8);
     const guideMatches = doc.document_type === "guide" ? docChunks.filter((chunk) => matchedTerms.some((term) => normalized(chunk.content).includes(term))).slice(0, 12).map((chunk) => ({ pageNumber: Number(chunk.metadata?.page_number) || null, snippet: snippet(chunk.content, matchedTerms) })) : [];
     return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: (doc.content_masked || "").slice(0, 12000), score, matchedTerms, legalReferences: legal, complaintMetadata: complaintMeta || {}, guideMatches };
-  }).filter((item): item is KeywordSearchResult => item !== null).sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+  }).filter((item): item is KeywordSearchResult => item !== null);
+  return [...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
 }

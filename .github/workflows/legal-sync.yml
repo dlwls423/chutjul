@@ -1,0 +1,20 @@
+name: Sync current privacy laws
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Refresh legal corpus
+        env:
+          LEGAL_SYNC_TOKEN: ${{ secrets.LEGAL_SYNC_TOKEN }}
+        run: |
+          test -n "$LEGAL_SYNC_TOKEN"
+          curl --fail-with-body --retry 2 --max-time 720 \
+            -X POST "https://chutjul-test.leeyejin113.chatgpt.site/api/legal/sync" \
+            -H "Authorization: Bearer $LEGAL_SYNC_TOKEN"
