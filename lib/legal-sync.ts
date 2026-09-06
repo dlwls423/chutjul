@@ -8,7 +8,16 @@ function objects(value:unknown,out:Record<string,unknown>[]=[]){if(Array.isArray
 function dateOf(value:string){const digits=value.replace(/\D/g,"");return digits.length>=8?`${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6,8)}`:null;}
 async function api(path:string){const response=await fetch(`${API}/${path}`,{cache:"no-store"});if(!response.ok)throw new Error(`LAW_API_${response.status}`);return response.json() as Promise<unknown>;}
 async function sha(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,"0")).join("");}
-function findSearchItem(payload:unknown,name:string){const candidates=objects(payload).filter(o=>pick(o,["법령명한글","행정규칙명","법령명"])===name);return candidates[0]||null;}
+function normalizedName(value:string){return value.replace(/<[^>]*>/g,"").replace(/[\s·]/g,"").replace(/^\([^)]*\)/,"").trim();}
+function officialApiError(payload:unknown){
+  const envelope=objects(payload).find(o=>text(o.resultCode)||text(o.resultMsg));
+  if(!envelope)return null;
+  const code=text(envelope.resultCode);
+  if(!code||code==="00")return null;
+  const message=text(envelope.resultMsg).replace(/[^0-9A-Za-z가-힣 _.-]/g,"").slice(0,120);
+  return `LAW_API_RESULT_${code}${message?`:${message}`:""}`;
+}
+function findSearchItem(payload:unknown,name:string){const wanted=normalizedName(name);const candidates=objects(payload).filter(o=>{const found=normalizedName(pick(o,["법령명한글","행정규칙명","법령명"]));return found===wanted||found.includes(wanted)||wanted.includes(found);});return candidates[0]||null;}
 function provisions(payload:unknown){const rows:{provision_key:string;article_number:string|null;heading:string|null;body:string;sequence:number}[]=[];for(const object of objects(payload)){const number=pick(object,["조문번호","조문가지번호","항번호","호번호","목번호"]);const heading=pick(object,["조문제목","조문명","항제목"]);const body=pick(object,["조문내용","항내용","호내용","목내용"]);if(!body||body.length<4)continue;const key=`${number||"본문"}-${rows.length+1}`;rows.push({provision_key:key,article_number:number?`제${number.replace(/^제|조$/g,"")}조`:null,heading:heading||null,body,sequence:rows.length});}if(!rows.length){const all=JSON.stringify(payload,null,2);rows.push({provision_key:"전체-1",article_number:null,heading:"전체 본문",body:all.slice(0,500000),sequence:0});}return rows;}
 
 export async function syncLegalSources(){
@@ -18,6 +27,7 @@ export async function syncLegalSources(){
   let changed=0;const errors:{name:string;error:string}[]=[];
   for(const source of sources){try{
     const listing=await api(`lawSearch.do?OC=${encodeURIComponent(oc)}&target=${source.source_target}&type=JSON&search=1&display=20&query=${encodeURIComponent(source.canonical_name)}`);
+    const listingError=officialApiError(listing);if(listingError)throw new Error(listingError);
     const item=findSearchItem(listing,source.canonical_name);if(!item)throw new Error("OFFICIAL_SOURCE_NOT_FOUND");
     const externalId=pick(item,["법령일련번호","행정규칙일련번호","법령ID","행정규칙ID"]);if(!externalId)throw new Error("OFFICIAL_ID_NOT_FOUND");
     const detail=await api(`lawService.do?OC=${encodeURIComponent(oc)}&target=${source.source_target}&type=JSON&ID=${encodeURIComponent(externalId)}`);
