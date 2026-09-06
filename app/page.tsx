@@ -5,7 +5,8 @@ import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
-import { preparePdfInBrowser } from "../lib/browser-privacy";
+import { isComplaintPdfInBrowser, preparePdfInBrowser } from "../lib/browser-privacy";
+import { hasGuideFileKeyword } from "../lib/document-classification";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -174,7 +175,13 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
       setUploadProgress(4);
       try {
         let uploadFile=f;
-        if (f.name.toLowerCase().endsWith(".pdf") && !f.name.includes("안내서")) {
+        let documentType = "complaint";
+        if (f.name.toLowerCase().endsWith(".pdf") && hasGuideFileKeyword(f.name)) {
+          setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · 민원 양식 여부를 확인하고 있습니다.`);
+          updateItem({ message: "민원 양식 여부 확인 중" });
+          documentType = (await isComplaintPdfInBrowser(f)) ? "complaint" : "guide";
+        }
+        if (f.name.toLowerCase().endsWith(".pdf") && documentType === "complaint") {
           const prepared = await preparePdfInBrowser(f, (message, progress) => {
             setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · ${message}`);
             setUploadProgress(progress);
@@ -187,7 +194,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
         setUploadProgress(84);
         updateItem({ message: "저장 및 검색 데이터 생성 중" });
         form.append("file", uploadFile);
-        form.append("documentType", "complaint");
+        form.append("documentType", documentType);
         form.append("department", currentDepartment);
         if (retryId) form.append("retryJobId", retryId);
         const r = await fetch("/api/uploads", { method: "POST", body: form });

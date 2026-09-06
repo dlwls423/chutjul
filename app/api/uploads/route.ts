@@ -7,6 +7,7 @@ import {
   retryUpload,
 } from "../../../lib/ingestion";
 import { requireProfile } from "../../../lib/auth";
+import { hasGuideFileKeyword } from "../../../lib/document-classification";
 export const runtime = "edge";
 const allowed = ["pdf", "xlsx", "xls"];
 export async function GET(request: Request) {
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
         { error: "부서를 선택해 주세요." },
         { status: 400 },
       );
-    const documentType = file.name.includes("안내서")
+    const documentType = hasGuideFileKeyword(file.name)
       ? "guide"
       : String(form.get("documentType") || "complaint");
     const privacyRaw = form.get("browserPrivacy");

@@ -101,6 +101,12 @@ function mask(text: string) {
   return { value, counts };
 }
 export const maskSensitiveText = mask;
+export async function isComplaintPdfInBrowser(file: File) {
+  const extracted = await extractText(new Uint8Array(await file.arrayBuffer()), {
+    mergePages: true,
+  });
+  return Boolean(parseEpeopleComplaint(cleanExtractedText(extracted.text), file.name));
+}
 export function maskAnswerAttribution(text: string) {
   const counts: Record<string, number> = {};
   const start = Math.max(0, text.length - 800);

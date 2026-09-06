@@ -5,6 +5,7 @@ import {
   extractGuideToc,
   parseEpeopleComplaint,
 } from "./epeople-parser";
+import { hasGuideFileKeyword } from "./document-classification";
 import { detectResidualSensitiveInfo } from "./privacy-check";
 
 export type JobStatus =
@@ -383,9 +384,9 @@ function verifyBrowserPrivacy(
     throw new Error("BROWSER_PRIVACY_INVALID");
   return { ...result, maskedRecord: maskRow(result.maskedRecord) };
 }
-function recordsFromPdfText(file: File, text: string, pageCount?: number) {
+function recordsFromPdfText(file: File, text: string, pageCount?: number, documentType?: string) {
   const fullText = cleanExtractedText(text);
-  if (file.name.includes("안내서"))
+  if (documentType === "guide" || hasGuideFileKeyword(file.name))
     return {
       records: [
         {
@@ -1071,7 +1072,9 @@ async function runPipeline(
 ) {
   try {
     await updateJob(config, jobId, "checking", { progress: 8 });
-    const isComplaintPdf = file.name.toLowerCase().endsWith(".pdf") && !file.name.includes("안내서");
+    const isPdf = file.name.toLowerCase().endsWith(".pdf");
+    const isGuidePdf = isPdf && documentType === "guide" && !browserPrivacy;
+    const isComplaintPdf = isPdf && !isGuidePdf;
     let verifiedPrivacy: BrowserPrivacyResult | undefined;
     let maskedPdfPages: number | undefined;
     if (isComplaintPdf) {
@@ -1099,13 +1102,13 @@ async function runPipeline(
         const local = await extractText(source, { mergePages: true });
         const localText = cleanExtractedText(local.text);
         if (!localText.trim()) throw new Error("LOCAL_PDF_TEXT_EMPTY");
-        parsed = recordsFromPdfText(file, localText, local.totalPages);
+        parsed = recordsFromPdfText(file, localText, local.totalPages, isGuidePdf ? "guide" : documentType);
       }
     } else {
       await updateJob(config, jobId, "parsing", { progress: 30 });
       parsed = await parseFile(file);
     }
-    if (file.name.includes("안내서")) {
+    if (isGuidePdf) {
       await updateJob(config, jobId, "masking", {
         progress: 55,
         total_records: parsed.records.length,
