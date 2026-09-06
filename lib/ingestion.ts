@@ -52,8 +52,13 @@ async function supabase<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  const body =
+    typeof init.body === "string"
+      ? init.body.replace(/\\u0000/gi, "")
+      : init.body;
   const res = await fetch(`${config.url}${path}`, {
     ...init,
+    body,
     headers: {
       apikey: config.serviceKey,
       Authorization: `Bearer ${config.serviceKey}`,
