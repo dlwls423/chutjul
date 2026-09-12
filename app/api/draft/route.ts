@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     if (rawBody.length > 30000) throw new Error('INVALID_INPUT');
     const body = JSON.parse(rawBody);
     if (body.action === 'prepare') {
-      if (Object.keys(body).some(k => !['action', 'summary'].includes(k))) throw new Error('INVALID_INPUT');
+      if (body.confirmed !== true || Object.keys(body).some(k => !['action', 'summary', 'confirmed'].includes(k))) throw new Error('INVALID_INPUT');
       const summary = validateSummary(body.summary);
       const query = [summary.purpose,...summary.legalQuestions,...summary.requestedAnswer].join(' ').slice(0,500);
       const found=await keywordSearch(profile.department,query);

@@ -401,7 +401,6 @@ function Analyze({
   const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(null);
   const [summaryApproved, setSummaryApproved] = useState(false);
   const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
-  const [approved, setApproved] = useState(false);
   const [draft, setDraft] = useState("");
   const [localModel, setLocalModel] = useState("");
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
@@ -416,7 +415,7 @@ function Analyze({
     if (busy || !text.trim()) return;
     setBusy(true);
     setAnalysisError("");
-    setPreview(null); setApproved(false); setSummaryApproved(false); setDraft(""); setSafeSummary(null); setSelectedEvidence([]); setResults([]);
+    setPreview(null); setSummaryApproved(false); setDraft(""); setSafeSummary(null); setSelectedEvidence([]); setResults([]);
     try {
       const local=await summarizeLocally(`${title}\n${text}`,setAnalysisStatus);
       setSafeSummary(local.summary); setLocalModel(local.model); setMasked(true);
@@ -435,18 +434,20 @@ function Analyze({
     if(busy||!safeSummary||!summaryApproved)return;
     setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);setDraft('');setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
-      const prepared=await postDraft({action:'prepare',summary:safeSummary});
+      const prepared=await postDraft({action:'prepare',summary:safeSummary,confirmed:true});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
-      setAnalysisStatus('후보 근거 검색 완료 · AI 전송자료 확인 필요');setApproved(false);flash('관련 민원·법령·안내서 후보를 찾았습니다.');
+      setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
+      const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
+      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
   }
-  async function generateDraft(){
-    if(busy||!preview||!approved)return;
-    setBusy(true);setAnalysisError('');setAnalysisStatus('확인한 자료로 답변 초안 작성 중');
+  async function retryDraft(){
+    if(busy||!preview)return;
+    setBusy(true);setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
-      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setApproved(false);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
+      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
   return (
@@ -514,7 +515,7 @@ function Analyze({
         />
         <span className="done">{busy ? analysisStatus : results.length ? `✓ 근거 ${results.length}건 확인` : analysisStatus}</span>
       </div>
-      {safeSummary && <section className="safe-summary"><div className="summary-review-head"><div><b>기기에서 만든 비식별 요약</b><small>{localModel} · 아직 외부 AI로 전송되지 않았습니다.</small></div><span>확인 필요</span></div><div className="summary-review-body"><h3>{safeSummary.purpose}</h3><h4>핵심 사실</h4>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}<h4>법적 쟁점</h4>{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}>• {item}</p>)}<h4>답변 요청사항</h4>{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}>• {item}</p>)}</div><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)} onChange={event=>setSummaryApproved(event.target.checked)} /><span>요약이 민원의 핵심 사실과 요청사항을 올바르게 반영하고 개인정보가 없음을 확인했습니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)} onClick={findEvidence}>{preview?'요약 수락 완료':busy?analysisStatus:'요약 수락하고 관련 자료 찾기'}</button></section>}
+      {safeSummary && <section className="safe-summary"><div className="summary-review-head"><div><b>기기에서 만든 비식별 요약</b><small>{localModel} · 수락 전에는 외부 AI로 전송되지 않습니다.</small></div><span>{preview?'수락 완료':'확인 필요'}</span></div><div className="summary-review-body"><h3>{safeSummary.purpose}</h3><h4>핵심 사실</h4>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}<h4>법적 쟁점</h4>{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}>• {item}</p>)}<h4>답변 요청사항</h4>{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}>• {item}</p>)}</div><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)} onChange={event=>setSummaryApproved(event.target.checked)} /><span>요약에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 관련 자료 검색부터 답변 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)} onClick={findEvidence}>{preview?'요약 수락 완료':busy?analysisStatus:'요약 수락하고 답변 초안 작성'}</button></section>}
       <div className="summary-strip">
         <div>
           <small>개인정보 처리</small>
@@ -543,17 +544,16 @@ function Analyze({
           <Title
             n="3"
             title="답변 초안"
-            sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "AI에 보낼 비식별 자료를 확인한 후 초안을 작성합니다."}
+            sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "비식별 요약을 수락하면 근거 선별과 초안 작성까지 자동으로 진행됩니다."}
           />
           {draft && <div><button onClick={()=>setDraft('')}>전송자료 다시 보기</button><button className="save" onClick={() => flash("답변과 사용 근거가 저장되었습니다.")}>저장하기</button></div>}
         </div>
         <div className="draft-body">
           {draft ? <textarea className="editor draft-editor" aria-label="답변 초안" value={draft} onChange={event=>setDraft(event.target.value)} /> : preview ? <div className="editor transmission-review">
-            <div className="review-heading"><b>외부 AI 전송 전 확인</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
+            <div className="review-heading"><b>승인된 비식별 자료</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
             <details open><summary>실제 OpenAI 전송자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
-            <label className="transmission-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={event=>setApproved(event.target.checked)} /><span>위 전송자료에 개인·기관·사건을 식별할 정보가 없음을 확인했으며, 이 내용으로 답변 초안을 작성하는 데 동의합니다.</span></label>
-            <button className="analyze" disabled={busy||!approved} onClick={generateDraft}>{busy?analysisStatus:'확인 후 AI에 전송하고 초안 작성'}</button>
-          </div> : <div className="editor draft-empty"><b>민원을 분석하면 전송 전 확인 화면이 표시됩니다.</b><p>확인 전에는 외부 AI로 어떤 내용도 전송되지 않습니다.</p></div>}
+            <p>처리가 중단된 경우에만 아래 버튼으로 이어서 진행할 수 있습니다.</p><button className="analyze" disabled={busy} onClick={retryDraft}>{busy?analysisStatus:'초안 작성 다시 시도'}</button>
+          </div> : <div className="editor draft-empty"><b>비식별 요약을 확인하고 수락해 주세요.</b><p>수락하면 관련 자료 검색, 근거 선별, 답변 초안 작성이 자동으로 이어집니다.</p></div>}
           <aside className="evidence">
             <h3>
               {draft ? "AI가 선택한 근거" : "AI 선택 후보"} <span>{draft ? selectedEvidence.length : preview?.evidence.length || 0}</span>

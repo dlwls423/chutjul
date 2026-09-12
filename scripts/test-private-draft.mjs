@@ -19,10 +19,11 @@ const request=(body,origin='https://test.local')=>new Request('https://test.loca
 let calls=0;let sent;
 globalThis.fetch=async(url,init)=>{assert.equal(url,'https://api.openai.com/v1/responses');calls++;sent=JSON.parse(init.body);return Response.json({output:[{content:[{type:'output_text',text:JSON.stringify({selectedEvidence:[{reference:'E1',reason:'쟁점에 직접 관련된 현행 법령'}],draft:'추가 사실 확인이 필요합니다. [E1]'})}]}]});};
 const summary={purpose:'개인정보 전송요구권 적용 기준 확인',essentialFacts:['공개 API만 이용하는 서비스임'],legalQuestions:['개인정보 전송요구권 적용 대상인지 여부'],requestedAnswer:['관련 법령과 판단 기준 안내 요청'],uncertainties:[]};
-assert.equal((await POST(request({action:'prepare',summary,raw:'홍길동 010-1234-5678'}))).status,400);
-assert.equal((await POST(request({action:'prepare',summary:{...summary,purpose:'홍길동 010-1234-5678 문의'}}))).status,400);
-assert.equal((await POST(request({action:'prepare',summary},'https://foreign.local'))).status,403);
-const prepared=await (await POST(request({action:'prepare',summary}))).json();
+assert.equal((await POST(request({action:'prepare',summary,confirmed:true,raw:'홍길동 010-1234-5678'}))).status,400);
+assert.equal((await POST(request({action:'prepare',summary:{...summary,purpose:'홍길동 010-1234-5678 문의'},confirmed:true}))).status,400);
+assert.equal((await POST(request({action:'prepare',summary,confirmed:false}))).status,400);
+assert.equal((await POST(request({action:'prepare',summary,confirmed:true},'https://foreign.local'))).status,403);
+const prepared=await (await POST(request({action:'prepare',summary,confirmed:true}))).json();
 assert.ok(prepared.signature);assert.equal(calls,0);
 assert.equal((await POST(request({action:'generate',confirmed:false,envelope:prepared.envelope,signature:prepared.signature}))).status,400);
 assert.equal((await POST(request({action:'generate',confirmed:true,envelope:prepared.envelope+' ',signature:prepared.signature}))).status,400);
