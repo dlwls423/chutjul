@@ -687,6 +687,7 @@ function Search({
   }
   function resultCard(item: SearchItem) {
     const kind = item.documentType === "complaint" ? "민원" : item.documentType === "law" ? "법령" : "안내서";
+    const complaintPreview = item.documentType === "complaint" ? item.question.replace(/\s+/g, " ").trim().slice(0, 240) : "";
     return <article key={item.id}>
       <div className="result-icon">{kind.slice(0, 1)}</div>
       <div>
@@ -697,6 +698,7 @@ function Search({
         </div>
         <h4><Highlighted text={item.title} terms={item.matchedTerms} /></h4>
         <p><Highlighted text={item.snippet} terms={item.matchedTerms} /></p>
+        {complaintPreview && <div className="complaint-result-preview"><strong>민원 내용</strong><p><Highlighted text={`${complaintPreview}${item.question.length > complaintPreview.length ? "…" : ""}`} terms={item.matchedTerms} /></p></div>}
         {item.documentType === "guide" && item.guideMatches.length > 0 && <div className="guide-hit-group"><b>본문 일치 결과 {item.guideMatches.length}개</b>{item.guideMatches.slice(0, 3).map((match, index) => <span key={`${match.pageNumber}-${index}`}>{match.pageNumber ? `${match.pageNumber}쪽 · ` : ""}<Highlighted text={match.snippet} terms={item.matchedTerms} /></span>)}</div>}
         <div className="tags">
           {item.category && <span>{item.category}</span>}

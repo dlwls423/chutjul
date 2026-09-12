@@ -7,6 +7,7 @@ type Version = { id:string; effective_from:string|null; proclamation_number:stri
 const norm=(value:string)=>value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/\s+/g," ").trim();
 const STOP_WORDS=new Set(["그리고","그러나","대한","대하여","관련","문의","알려주세요","경우","있는","없는","합니다","했습니다","입니다","되어","되는","하는","하여","에서","으로","에게","까지","또한","해당","내용","답변","민원"]);
 function queryTerms(value:string){return [...new Set(norm(value).replace(/[^0-9a-z가-힣제조항의]+/gi," ").split(" ").filter(term=>term.length>=2&&!STOP_WORDS.has(term)))].sort((a,b)=>b.length-a.length).slice(0,20);}
+function provisionFilter(terms:string[]){const safe=terms.map(term=>term.replace(/[,()*%._]/g,"").trim()).filter(Boolean).slice(0,10);const clauses=safe.flatMap(term=>[`heading.ilike.*${term}*`,`body.ilike.*${term}*`]);return clauses.length?`&or=${encodeURIComponent(`(${clauses.join(",")})`)}`:"";}
 const clip=(text:string,terms:string[])=>{const clean=text.replace(/\s+/g," ").trim();const lower=norm(clean);const at=Math.min(...terms.map(t=>lower.indexOf(t)).filter(n=>n>=0));if(!Number.isFinite(at))return clean.slice(0,260);const start=Math.max(0,at-70);return `${start?"…":""}${clean.slice(start,start+330)}${start+330<clean.length?"…":""}`;};
 
 export async function searchCurrentLaws(rawQuery:string,department:string){
@@ -17,7 +18,7 @@ export async function searchCurrentLaws(rawQuery:string,department:string){
   if(!versions.length)return[];
   const versionIds=versions.map(v=>v.id);
   const provisions:Provision[]=[];
-  for(let i=0;i<versionIds.length;i+=40){const ids=versionIds.slice(i,i+40).join(",");provisions.push(...await serviceRequest<Provision[]>(`/rest/v1/legal_provisions?version_id=in.(${ids})&select=id,source_id,article_number,heading,body,version_id&limit=3000`));}
+  for(let i=0;i<versionIds.length;i+=40){const ids=versionIds.slice(i,i+40).join(",");provisions.push(...await serviceRequest<Provision[]>(`/rest/v1/legal_provisions?version_id=in.(${ids})${provisionFilter(terms)}&select=id,source_id,article_number,heading,body,version_id&limit=1000`));}
   const sourceIds=[...new Set(provisions.map(p=>p.source_id))];
   const sources=sourceIds.length?await serviceRequest<Source[]>(`/rest/v1/legal_sources?id=in.(${sourceIds.join(",")})&enabled=eq.true&select=id,canonical_name,source_url,priority,related_departments`):[];
   const sourceMap=new Map(sources.map(s=>[s.id,s]));const versionMap=new Map(versions.map(v=>[v.id,v]));
