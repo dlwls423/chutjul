@@ -46,10 +46,13 @@ export async function POST(request: Request) {
     const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: approved.payload, signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error('GENERATION_FAILED');
     const result = await response.json();
-    const draft = (result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
+    let draft = (result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
+    const suspect = detectResidualSensitiveInfo(draft);
+    for (const finding of suspect.sort((a,b)=>b.value.length-a.value.length)) draft=draft.split(finding.value).join('[추가 검토 필요]');
     if (!draft || detectResidualSensitiveInfo(draft).length) throw new Error('OUTPUT_REVIEW_FAILED');
     const allowed = new Set(JSON.parse(JSON.parse(approved.payload).input).evidence.map((e: {reference:string})=>e.reference));
     if ([...draft.matchAll(/\[(L\d+)\]/g)].some(m=>!allowed.has(m[1]))) throw new Error('OUTPUT_REVIEW_FAILED');
+    if(suspect.length) draft+='\n\n※ 식별정보로 의심되는 표현을 [추가 검토 필요]로 치환했습니다. 문맥을 확인해 주세요.';
     return NextResponse.json({ draft }, { headers });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
