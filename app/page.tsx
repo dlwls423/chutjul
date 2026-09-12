@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import DocumentViewer from "../components/DocumentViewer";
-import PrivateAnalysis from "../components/PrivateAnalysis";
 import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
+import { summarizeLocally, summaryText, type SafeComplaintSummary } from "../lib/local-draft";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -272,9 +272,17 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
         {view === "analyze" && (
           <>
             <div className="scope-notice">
-              🔒 민원 원문은 기기 안에서 처리하고, 확인한 쟁점과 공개 법령으로 초안을 작성합니다.
+              🔒 민원 원문은 기기 안에서 처리하며, 외부 AI 전송자료는 담당자가 확인한 뒤에만 전송합니다.
             </div>
-            <PrivateAnalysis key={currentDepartment} />
+            <Analyze
+              text={text}
+              setText={setText}
+              masked={masked}
+              setMasked={setMasked}
+              flash={flash}
+              setModal={setModal}
+              department={currentDepartment}
+            />
           </>
         )}{" "}
         {view === "search" && (
@@ -388,24 +396,53 @@ function Analyze({
   const [title, setTitle] = useState("마이데이터 사업자 허가 처리기한 문의");
   const [results, setResults] = useState<SearchItem[]>([]);
   const [analysisError, setAnalysisError] = useState("");
+  const [analysisStatus, setAnalysisStatus] = useState("분석 전");
+  const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(null);
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;title:string;effectiveFrom:string;source:string;excerpt:string}[] } | null>(null);
+  const [approved, setApproved] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [localModel, setLocalModel] = useState("");
+  async function postDraft(body: unknown) {
+    const response=await fetch('/api/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+    const payload=await response.json();
+    if(!response.ok)throw new Error(payload.error||'초안 자료를 준비하지 못했습니다.');
+    return payload;
+  }
   async function analyze() {
     if (busy || !text.trim()) return;
     setBusy(true);
     setAnalysisError("");
+    setPreview(null); setApproved(false); setDraft(""); setSafeSummary(null);
     try {
-      const safeQuery = maskSensitiveText(`${title} ${text}`).value.slice(0, 1500);
-      const response = await fetch(`/api/search?q=${encodeURIComponent(safeQuery)}&department=${encodeURIComponent(department)}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "분석 결과를 불러오지 못했습니다.");
-      setResults(payload.results || []);
-      flash("최신 현행 법령과 부서 자료 검색이 완료되었습니다.");
+      const local=await summarizeLocally(`${title}\n${text}`,setAnalysisStatus);
+      setSafeSummary(local.summary); setLocalModel(local.model); setMasked(true);
+      const safeQuery=summaryText(local.summary).slice(0,2000);
+      setAnalysisStatus('비식별 요약으로 부서 자료와 공개 법령 검색 중');
+      const [searchResponse,draftPreview]=await Promise.all([
+        fetch(`/api/search?q=${encodeURIComponent(safeQuery)}&department=${encodeURIComponent(department)}`, { cache: "no-store" }),
+        postDraft({action:'prepare',summary:local.summary}),
+      ]);
+      const payload = await searchResponse.json();
+      if (!searchResponse.ok) throw new Error(payload.error || "분석 결과를 불러오지 못했습니다.");
+      setResults(payload.results || []); setPreview(draftPreview);
+      setAnalysisStatus('분석 완료 · AI 전송자료 확인 필요');
+      flash("분석이 완료되었습니다. AI 전송자료를 확인해 주세요.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
       setAnalysisError(message);
+      setAnalysisStatus('분석 중단');
       flash(message);
     } finally {
       setBusy(false);
     }
+  }
+  async function generateDraft(){
+    if(busy||!preview||!approved)return;
+    setBusy(true);setAnalysisError('');setAnalysisStatus('확인한 자료로 답변 초안 작성 중');
+    try{
+      const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
+      setDraft(result.draft);setApproved(false);setAnalysisStatus('초안 작성 완료 · 담당자 검토 필요');flash('답변 초안이 작성되었습니다.');
+    }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
   return (
     <div className="content">
@@ -433,17 +470,14 @@ function Analyze({
         <div className="fields">
           <label>
             민원 제목
-            <input value={title} onChange={(event) => setTitle(event.target.value)} />
+            <input value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); setSafeSummary(null); setDraft(""); }} />
           </label>
           <label>
             민원 본문
             <textarea
-              value={
-                (masked
-                  ? "홍○동 민원인이 010-****-1234로 문의했습니다.\n"
-                  : "") + text
-              }
-              onChange={(e) => setText(e.target.value)}
+              value={masked ? maskSensitiveText(text).value : text}
+              readOnly={masked}
+              onChange={(e) => { setText(e.target.value); setPreview(null); setSafeSummary(null); setDraft(""); }}
             />
           </label>
           <div className="meta-row">
@@ -463,7 +497,7 @@ function Analyze({
         <div className="input-footer">
           <span>{text.length} / 10,000자</span>
           <button className="analyze" onClick={analyze} disabled={busy || !text.trim()}>
-            {busy ? "분석 중…" : "✦ 민원 분석하기"}
+            {busy ? analysisStatus : "✦ 민원 분석하기"}
           </button>
         </div>
       </section>
@@ -473,8 +507,9 @@ function Analyze({
           title="분석 결과"
           sub="AI가 찾은 결과를 검토하고 필요한 근거를 선택하세요."
         />
-        <span className="done">{busy ? "검색 중…" : results.length ? `✓ 근거 ${results.length}건 확인` : "분석 전"}</span>
+        <span className="done">{busy ? analysisStatus : results.length ? `✓ 근거 ${results.length}건 확인` : analysisStatus}</span>
       </div>
+      {safeSummary && <details className="safe-summary"><summary>기기에서 만든 비식별 요약 확인 · {localModel}</summary><div><b>{safeSummary.purpose}</b>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}><strong>쟁점</strong> {item}</p>)}{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}><strong>요청</strong> {item}</p>)}</div></details>}
       <div className="summary-strip">
         <div>
           <small>소관 판단</small>
@@ -505,70 +540,26 @@ function Analyze({
           <Title
             n="3"
             title="답변 초안"
-            sub="근거 자료를 반영한 초안입니다. 내용을 검토하고 수정하세요."
+            sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "AI에 보낼 비식별 자료를 확인한 후 초안을 작성합니다."}
           />
-          <div>
-            <button
-              onClick={() => flash("선택한 근거로 초안을 다시 작성했습니다.")}
-            >
-              ↻ 다시 생성
-            </button>
-            <button
-              className="save"
-              onClick={() => flash("답변과 사용 근거가 저장되었습니다.")}
-            >
-              저장하기
-            </button>
-          </div>
+          {draft && <div><button onClick={()=>setDraft('')}>전송자료 다시 보기</button><button className="save" onClick={() => flash("답변과 사용 근거가 저장되었습니다.")}>저장하기</button></div>}
         </div>
         <div className="draft-body">
-          <div
-            className="editor"
-            contentEditable
-            suppressContentEditableWarning
-          >
-            <p>
-              안녕하세요. 귀하께서 문의하신 마이데이터 사업자 허가 처리기간에
-              대해 다음과 같이 답변드립니다.
-            </p>
-            <p>
-              「신용정보의 이용 및 보호에 관한 법률」 제7조 제2항에 따라
-              금융위원회는 허가 신청을 받은 날부터 <mark>3개월 이내</mark>에
-              허가 여부를 결정하는 것을 원칙으로 합니다.
-            </p>
-            <p>
-              다만, 신청서류의 보완에 소요된 기간 등은 처리기간에 산입되지 않을
-              수 있습니다. 현재 신청 건의 구체적인 진행 상황과 지연 사유는 담당
-              부서에 확인이 필요하며, 확인 후 별도로 안내드리겠습니다.
-            </p>
-            <p>
-              추가 문의사항이 있으시면 마이데이터추진단으로 연락하여 주시기
-              바랍니다. 감사합니다.
-            </p>
-          </div>
+          {draft ? <textarea className="editor draft-editor" aria-label="답변 초안" value={draft} onChange={event=>setDraft(event.target.value)} /> : preview ? <div className="editor transmission-review">
+            <div className="review-heading"><b>외부 AI 전송 전 확인</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
+            <details open><summary>실제 OpenAI 전송자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
+            <label className="transmission-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={event=>setApproved(event.target.checked)} /><span>위 전송자료에 개인·기관·사건을 식별할 정보가 없음을 확인했으며, 이 내용으로 답변 초안을 작성하는 데 동의합니다.</span></label>
+            <button className="analyze" disabled={busy||!approved} onClick={generateDraft}>{busy?analysisStatus:'확인 후 AI에 전송하고 초안 작성'}</button>
+          </div> : <div className="editor draft-empty"><b>민원을 분석하면 전송 전 확인 화면이 표시됩니다.</b><p>확인 전에는 외부 AI로 어떤 내용도 전송되지 않습니다.</p></div>}
           <aside className="evidence">
             <h3>
-              사용 근거 <span>3</span>
+              사용 근거 <span>{preview?.evidence.length || 0}</span>
             </h3>
-            {[
-              "① 유사 민원|허가 심사기간 관련 문의",
-              "② 신용정보법|제7조 제2항",
-              "③ 허가심사 안내서|제2장 · 14쪽",
-            ].map((x) => {
-              const a = x.split("|");
-              return (
-                <div key={x}>
-                  <b>{a[0]}</b>
-                  <p>{a[1]}</p>
-                </div>
-              );
-            })}
+            {!preview?.evidence.length && <p>분석 후 현행 법령 근거가 표시됩니다.</p>}
+            {preview?.evidence.map(item=><div key={item.reference}><b>[{item.reference}] {item.title}</b><p>시행일 {item.effectiveFrom}</p></div>)}
             <label>
               이관 가능 부서
-              <select defaultValue="마이데이터추진단">
-                <option>마이데이터추진단</option>
-                <option>금융데이터과</option>
-              </select>
+              <select defaultValue={department}><option>{department}</option></select>
             </label>
             <label>
               답변 예정일
