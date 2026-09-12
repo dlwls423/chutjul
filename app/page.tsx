@@ -5,7 +5,7 @@ import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
-import { isComplaintPdfInBrowser, preparePdfInBrowser } from "../lib/browser-privacy";
+import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
@@ -280,6 +280,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
               setMasked={setMasked}
               flash={flash}
               setModal={setModal}
+              department={currentDepartment}
             />
           </>
         )}{" "}
@@ -380,6 +381,7 @@ function Analyze({
   setMasked,
   flash,
   setModal,
+  department,
 }: {
   text: string;
   setText: (s: string) => void;
@@ -387,14 +389,30 @@ function Analyze({
   setMasked: (b: boolean) => void;
   flash: (s: string) => void;
   setModal: (s: string) => void;
+  department: string;
 }) {
   const [busy, setBusy] = useState(false);
-  function analyze() {
+  const [title, setTitle] = useState("마이데이터 사업자 허가 처리기한 문의");
+  const [results, setResults] = useState<SearchItem[]>([]);
+  const [analysisError, setAnalysisError] = useState("");
+  async function analyze() {
+    if (busy || !text.trim()) return;
     setBusy(true);
-    setTimeout(() => {
+    setAnalysisError("");
+    try {
+      const safeQuery = maskSensitiveText(`${title} ${text}`).value.slice(0, 1500);
+      const response = await fetch(`/api/search?q=${encodeURIComponent(safeQuery)}&department=${encodeURIComponent(department)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "분석 결과를 불러오지 못했습니다.");
+      setResults(payload.results || []);
+      flash("최신 현행 법령과 부서 자료 검색이 완료되었습니다.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
+      setAnalysisError(message);
+      flash(message);
+    } finally {
       setBusy(false);
-      flash("분석이 완료되었습니다.");
-    }, 900);
+    }
   }
   return (
     <div className="content">
@@ -422,7 +440,7 @@ function Analyze({
         <div className="fields">
           <label>
             민원 제목
-            <input defaultValue="마이데이터 사업자 허가 처리기한 문의" />
+            <input value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
           <label>
             민원 본문
@@ -451,7 +469,7 @@ function Analyze({
         </div>
         <div className="input-footer">
           <span>{text.length} / 10,000자</span>
-          <button className="analyze" onClick={analyze}>
+          <button className="analyze" onClick={analyze} disabled={busy || !text.trim()}>
             {busy ? "분석 중…" : "✦ 민원 분석하기"}
           </button>
         </div>
@@ -462,7 +480,7 @@ function Analyze({
           title="분석 결과"
           sub="AI가 찾은 결과를 검토하고 필요한 근거를 선택하세요."
         />
-        <span className="done">✓ 분석 완료 · 4.2초</span>
+        <span className="done">{busy ? "검색 중…" : results.length ? `✓ 근거 ${results.length}건 확인` : "분석 전"}</span>
       </div>
       <div className="summary-strip">
         <div>
@@ -485,9 +503,10 @@ function Analyze({
         </div>
       </div>
       <div className="result-grid">
-        <ResultCases setModal={setModal} />
-        <ResultLaws setModal={setModal} />
+        <ResultCases setModal={setModal} results={results.filter((item) => item.documentType === "complaint")} />
+        <ResultLaws setModal={setModal} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
+      {analysisError && <p className="upload-error">{analysisError}</p>}
       <section className="draft-card">
         <div className="draft-head">
           <Title
@@ -568,55 +587,41 @@ function Analyze({
     </div>
   );
 }
-function ResultCases({ setModal }: { setModal: (s: string) => void }) {
+function ResultCases({ setModal, results }: { setModal: (s: string) => void; results: SearchItem[] }) {
   return (
     <section className="result-card">
-      <Head title="유사 민원" count="5건" />
-      {cases.slice(0, 2).map((c, i) => (
-        <div className={"case " + (i === 0 ? "selected" : "")} key={c[1]}>
+      <Head title="유사 민원" count={`${results.length}건`} />
+      {!results.length && <div className="case"><p>민원을 분석하면 현재 부서의 유사 사례가 표시됩니다.</p></div>}
+      {results.slice(0, 2).map((c, i) => (
+        <div className={"case " + (i === 0 ? "selected" : "")} key={c.id}>
           <div>
-            <b>{c[0]} 일치</b>
-            <small>
-              {c[3]} · {c[4]}
-            </small>
+            <b>관련도 {Math.round(c.score)}</b>
+            <small>{c.createdAt?.slice(0, 10)} · {c.department}</small>
           </div>
-          <h4>{c[1]}</h4>
-          <p>{c[2]}</p>
+          <h4>{c.title}</h4>
+          <p>{c.snippet}</p>
           {i === 0 && (
-            <button onClick={() => setModal(c[1])}>원문 보기 ↗</button>
+            <button onClick={() => setModal(c.title)}>원문 보기 ↗</button>
           )}
         </div>
       ))}
-      <button className="more" onClick={() => setModal("유사 민원 전체 결과")}>
-        유사 민원 3건 더보기　⌄
-      </button>
+      {results.length > 2 && <button className="more" onClick={() => setModal("유사 민원 전체 결과")}>유사 민원 {results.length - 2}건 더보기　⌄</button>}
     </section>
   );
 }
-function ResultLaws({ setModal }: { setModal: (s: string) => void }) {
+function ResultLaws({ setModal, results }: { setModal: (s: string) => void; results: SearchItem[] }) {
   return (
     <section className="result-card">
-      <Head title="관련 법령 · 안내서" count="4건" />
-      <div className="law selected">
-        <b>법령</b>
-        <h4>신용정보의 이용 및 보호에 관한 법률</h4>
-        <p>제7조(허가) 제2항</p>
-        <blockquote>
-          금융위원회는 허가 신청을 받은 날부터 3개월 이내에 허가 여부를
-          결정하고...
-        </blockquote>
-        <button onClick={() => setModal("신용정보법 제7조 원문")}>
-          법령 원문 ↗
-        </button>
-      </div>
-      <div className="law">
-        <b className="guide">안내서</b>
-        <h4>마이데이터 허가심사 안내서</h4>
-        <p>제2장 허가 절차 · 14쪽</p>
-      </div>
-      <button className="more" onClick={() => setModal("관련 자료 전체 결과")}>
-        관련 자료 2건 더보기　⌄
-      </button>
+      <Head title="관련 법령 · 안내서" count={`${results.length}건`} />
+      {!results.length && <div className="law"><p>민원을 분석하면 최신 현행 법령과 안내서가 표시됩니다.</p></div>}
+      {results.slice(0, 3).map((item, index) => <div className={`law ${index === 0 ? "selected" : ""}`} key={item.id}>
+        <b className={item.documentType === "guide" ? "guide" : ""}>{item.documentType === "guide" ? "안내서" : "현행 법령"}</b>
+        <h4>{item.title}</h4>
+        <p>{item.complaintMetadata?.effective_from ? `시행일 ${String(item.complaintMetadata.effective_from)}` : item.category}</p>
+        <blockquote>{item.snippet}</blockquote>
+        <button onClick={() => setModal(item.title)}>상세 보기 ↗</button>
+      </div>)}
+      {results.length > 3 && <button className="more" onClick={() => setModal("관련 자료 전체 결과")}>관련 자료 {results.length - 3}건 더보기　⌄</button>}
     </section>
   );
 }
