@@ -599,7 +599,7 @@ function ResultCases({ open, selected, results }: { open: (item:SearchItem) => v
     <section className="result-card">
       <Head title="유사 민원" count={`${results.length}건`} />
       {!results.length && <div className="case"><p>민원을 분석하면 현재 부서의 유사 사례가 표시됩니다.</p></div>}
-      {results.slice(0, 2).map((c, i) => (
+      {results.map((c, i) => (
         <div className={"case " + (selected.has(c.evidenceReference||'') ? "ai-selected" : i === 0 ? "selected" : "")} key={c.id}>
           <div>
             <b>{selected.has(c.evidenceReference||'') ? `✓ AI 선택 ${c.evidenceReference}` : `후보 ${c.evidenceReference||''} · 관련도 ${Math.round(c.score)}`}</b>
@@ -610,7 +610,6 @@ function ResultCases({ open, selected, results }: { open: (item:SearchItem) => v
           <button onClick={() => open(c)}>원문 보기 ↗</button>
         </div>
       ))}
-      {results.length > 2 && <button className="more" disabled>후보 민원 {results.length - 2}건 추가 확인 가능</button>}
     </section>
   );
 }
@@ -619,14 +618,13 @@ function ResultLaws({ open, selected, results }: { open: (item:SearchItem) => vo
     <section className="result-card">
       <Head title="관련 법령 · 안내서" count={`${results.length}건`} />
       {!results.length && <div className="law"><p>민원을 분석하면 최신 현행 법령과 안내서가 표시됩니다.</p></div>}
-      {results.slice(0, 5).map((item, index) => <div className={`law ${selected.has(item.evidenceReference||'') ? "ai-selected" : index === 0 ? "selected" : ""}`} key={item.id}>
+      {results.map((item, index) => <div className={`law ${selected.has(item.evidenceReference||'') ? "ai-selected" : index === 0 ? "selected" : ""}`} key={item.id}>
         <b className={item.documentType === "guide" ? "guide" : ""}>{selected.has(item.evidenceReference||'') ? `✓ AI 선택 ${item.evidenceReference}` : `${item.documentType === "guide" ? "안내서" : "현행 법령"} 후보 ${item.evidenceReference||''}`}</b>
         <h4>{item.title}</h4>
         <p>{item.complaintMetadata?.effective_from ? `시행일 ${String(item.complaintMetadata.effective_from)}` : item.category}</p>
         <blockquote>{item.snippet}</blockquote>
         <button onClick={() => open(item)}>상세 보기 ↗</button>
       </div>)}
-      {results.length > 5 && <button className="more" disabled>후보 자료 {results.length - 5}건 추가 확인 가능</button>}
     </section>
   );
 }

@@ -59,7 +59,8 @@ export async function POST(request: Request) {
       const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},draft:{type:'string'}},required:['selectedEvidence','draft']};
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: profile.department, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
-      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates }, { headers });
+      const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
+      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
     if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature'].includes(k))) throw new Error('INVALID_INPUT');
     if (typeof body.envelope !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature || '')) throw new Error('INVALID_INPUT');
