@@ -7,7 +7,8 @@ import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
-import { summarizeLocally, type SafeComplaintSummary } from "../lib/local-draft";
+import { editableTextToSummary, summarizeLocally, summaryToEditableText, type SafeComplaintSummary } from "../lib/local-draft";
+import { cleanExtractedText, parseEpeopleComplaint } from "../lib/epeople-parser";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -70,8 +71,7 @@ const departments = [
 export default function Home() {
   return <AuthGate>{(profile) => <WorkspaceApp profile={profile} />}</AuthGate>;
 }
-const complaint =
-  "마이데이터 사업자 허가를 신청한 지 30일이 지났는데 아직 결과를 받지 못했습니다. 법적으로 처리기한이 언제까지인지, 지연되는 경우 어떤 안내를 받을 수 있는지 알고 싶습니다.";
+const complaint = "";
 const cases = [
   [
     "92%",
@@ -394,7 +394,11 @@ function Analyze({
   department: string;
 }) {
   const [busy, setBusy] = useState(false);
-  const [title, setTitle] = useState("마이데이터 사업자 허가 처리기한 문의");
+  const [title, setTitle] = useState("");
+  const [editorText, setEditorText] = useState("");
+  const [sourceMode, setSourceMode] = useState<"direct"|"pdf">("direct");
+  const [temporaryMeta, setTemporaryMeta] = useState<Record<string,string>>({});
+  const pdfInputRef=useRef<HTMLInputElement>(null);
   const [results, setResults] = useState<SearchItem[]>([]);
   const [analysisError, setAnalysisError] = useState("");
   const [analysisStatus, setAnalysisStatus] = useState("분석 전");
@@ -404,6 +408,7 @@ function Analyze({
   const [draft, setDraft] = useState("");
   const [localModel, setLocalModel] = useState("");
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
+  const [manualEvidenceRefs, setManualEvidenceRefs] = useState<string[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
   async function postDraft(body: unknown) {
     const response=await fetch('/api/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
@@ -411,35 +416,41 @@ function Analyze({
     if(!response.ok)throw new Error(payload.error||'초안 자료를 준비하지 못했습니다.');
     return payload;
   }
-  async function analyze() {
-    if (busy || !text.trim()) return;
+  async function loadComplaintPdf(file:File){
+    if(busy)return;
     setBusy(true);
-    setAnalysisError("");
-    setPreview(null); setSummaryApproved(false); setDraft(""); setSafeSummary(null); setSelectedEvidence([]); setResults([]);
-    try {
-      const local=await summarizeLocally(`${title}\n${text}`,setAnalysisStatus);
-      setSafeSummary(local.summary); setLocalModel(local.model); setMasked(true);
-      setAnalysisStatus('비식별 요약 완료 · 내용을 확인하고 수락해 주세요');
-      flash("기기에서 비식별 요약을 만들었습니다. 내용을 확인해 주세요.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
-      setAnalysisError(message);
-      setAnalysisStatus('분석 중단');
-      flash(message);
-    } finally {
-      setBusy(false);
-    }
+    setAnalysisError("");setPreview(null);setDraft("");setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setSourceMode('pdf');setAnalysisStatus('기기에서 PDF 내용을 읽고 있습니다');
+    try{
+      if(file.size>15*1024*1024)throw new Error('15MB 이하 PDF를 사용해 주세요.');
+      const {extractText}=await import('unpdf');
+      const extracted=await extractText(new Uint8Array(await file.arrayBuffer()),{mergePages:true});
+      const parsed=parseEpeopleComplaint(cleanExtractedText(extracted.text),file.name);
+      if(!parsed||!parsed.question)throw new Error('민원 제목과 본문을 분리하지 못했습니다. 국민신문고 민원 상세 PDF인지 확인해 주세요.');
+      setTitle(parsed.title||file.name.replace(/\.pdf$/i,''));setText(parsed.question);setMasked(true);
+      setTemporaryMeta({file_name:file.name,application_number:parsed.application_number||'',receipt_number:parsed.receipt_number||'',received_at:parsed.received_at||parsed.application_at||'',handler:parsed.handler_masked||'',department:parsed.department||department});
+      const local=await summarizeLocally(`${parsed.title}\n${parsed.question}`,setAnalysisStatus);
+      setSafeSummary(local.summary);setLocalModel(local.model);setEditorText(summaryToEditableText(local.summary));setAnalysisStatus('비식별 질의가 준비되었습니다 · 내용을 보완한 뒤 수락해 주세요');
+    }catch(error){const message=error instanceof Error?error.message:'PDF를 처리하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('PDF 처리 중단');flash(message);}finally{setBusy(false);if(pdfInputRef.current)pdfInputRef.current.value='';}
   }
-  async function findEvidence(){
-    if(busy||!safeSummary||!summaryApproved)return;
+  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);setDraft('');setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
+  async function acceptSummary() {
+    if (busy || !editorText.trim()) return;
+    const maskedEditor=maskSensitiveText(editorText).value;
+    if(maskedEditor!==editorText){setEditorText(maskedEditor);setSummaryApproved(false);setAnalysisStatus('개인정보를 마스킹했습니다 · 내용을 다시 확인해 주세요');flash('개인정보로 의심되는 내용을 마스킹했습니다. 수정된 내용을 확인해 주세요.');return;}
+    const accepted=editableTextToSummary(editorText);
+    setSafeSummary(accepted);setSummaryApproved(true);
+    await findEvidence(accepted);
+  }
+  async function findEvidence(acceptedSummary=safeSummary){
+    if(busy||!acceptedSummary)return;
     setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);setDraft('');setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
-      const prepared=await postDraft({action:'prepare',summary:safeSummary,confirmed:true});
+      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
       const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
-      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
+      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
   }
   async function retryDraft(){
@@ -450,62 +461,25 @@ function Analyze({
       setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
+  async function regenerateWithSelected(){
+    if(busy||!preview||!manualEvidenceRefs.length)return;
+    setBusy(true);setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
+    try{
+      const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature,selectedReferences:manualEvidenceRefs});
+      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
+    }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);}
+  }
   return (
     <div className="content">
       <section className="input-card">
         <div className="title-row">
-          <Title
-            n="1"
-            title="민원 내용"
-            sub="접수된 민원 내용을 입력하거나 붙여넣어 주세요."
-          />
-          <button
-            className={masked ? "mask active" : "mask"}
-            onClick={() => {
-              setMasked(!masked);
-              flash(
-                masked
-                  ? "원문을 표시합니다."
-                  : "개인정보 2건을 마스킹했습니다.",
-              );
-            }}
-          >
-            ◉ {masked ? "마스킹 적용됨" : "개인정보 탐지"}
-          </button>
+          <Title n="1" title="민원 질의 준비" sub="민원 PDF를 불러오거나 답변이 필요한 질문을 직접 작성하세요." />
+          <div className="analysis-source-tabs"><button className={sourceMode==='pdf'?'on':''} disabled={busy} onClick={()=>pdfInputRef.current?.click()}>PDF 불러오기</button><button className={sourceMode==='direct'?'on':''} disabled={busy} onClick={resetDirect}>직접 질문 작성</button></div>
+          <input ref={pdfInputRef} className="hidden-input" type="file" accept="application/pdf,.pdf" onChange={event=>{const file=event.target.files?.[0];if(file)void loadComplaintPdf(file);}} />
         </div>
-        <div className="fields">
-          <label>
-            민원 제목
-            <input value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); setSafeSummary(null); setSummaryApproved(false); setDraft(""); setResults([]); }} />
-          </label>
-          <label>
-            민원 본문
-            <textarea
-              value={masked ? maskSensitiveText(text).value : text}
-              readOnly={masked}
-              onChange={(e) => { setText(e.target.value); setPreview(null); setSafeSummary(null); setSummaryApproved(false); setDraft(""); setResults([]); }}
-            />
-          </label>
-          <div className="meta-row">
-            <label>
-              접수일
-              <input type="date" defaultValue="2026-08-24" />
-            </label>
-            <label>
-              담당자
-              <input defaultValue="김민지" />
-            </label>
-            <label>
-              첨부파일<button className="file-btn">＋ 파일 추가</button>
-            </label>
-          </div>
-        </div>
-        <div className="input-footer">
-          <span>{text.length} / 10,000자</span>
-          <button className="analyze" onClick={analyze} disabled={busy || !text.trim()}>
-            {busy ? analysisStatus : "✦ 민원 분석하기"}
-          </button>
-        </div>
+        {sourceMode==='pdf'&&Object.keys(temporaryMeta).length>0&&<div className="temporary-intake"><div className="temporary-heading"><div><b>PDF에서 불러온 민원 정보</b><small>현재 화면에만 임시 보관되며 저장 버튼을 누르기 전에는 DB에 저장되지 않습니다.</small></div><span>임시 저장</span></div><div className="temporary-meta"><div><small>민원 제목</small><strong>{title||'—'}</strong></div><div><small>접수일시</small><strong>{temporaryMeta.received_at||'—'}</strong></div><div><small>담당자</small><strong>{temporaryMeta.handler||'—'}</strong></div><div><small>처리부서</small><strong>{temporaryMeta.department||'—'}</strong></div><div><small>신청번호</small><strong>{temporaryMeta.application_number||'—'}</strong></div><div><small>접수번호</small><strong>{temporaryMeta.receipt_number||'—'}</strong></div></div><details><summary>마스킹된 민원 본문 확인</summary><p>{maskSensitiveText(text).value}</p></details></div>}
+        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">{sourceMode==='pdf'?'비식별 질의 요약':'답변받을 질문'}</label><span>{editorText.length.toLocaleString()} / 4,000자</span></div><p>{sourceMode==='pdf'?'브라우저가 만든 요약을 검토하고 빠진 사실이나 답변 요청사항을 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={4000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);setDraft('');setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 요약이 여기에 표시됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
+        <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
       <div className="analysis-head">
         <Title
@@ -515,7 +489,6 @@ function Analyze({
         />
         <span className="done">{busy ? analysisStatus : results.length ? `✓ 근거 ${results.length}건 확인` : analysisStatus}</span>
       </div>
-      {safeSummary && <section className="safe-summary"><div className="summary-review-head"><div><b>기기에서 만든 비식별 요약</b><small>{localModel} · 수락 전에는 외부 AI로 전송되지 않습니다.</small></div><span>{preview?'수락 완료':'확인 필요'}</span></div><div className="summary-review-body"><h3>{safeSummary.purpose}</h3><h4>핵심 사실</h4>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}<h4>법적 쟁점</h4>{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}>• {item}</p>)}<h4>답변 요청사항</h4>{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}>• {item}</p>)}</div><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)} onChange={event=>setSummaryApproved(event.target.checked)} /><span>요약에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 관련 자료 검색부터 답변 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)} onClick={findEvidence}>{preview?'요약 수락 완료':busy?analysisStatus:'요약 수락하고 답변 초안 작성'}</button></section>}
       <div className="summary-strip">
         <div>
           <small>개인정보 처리</small>
@@ -535,8 +508,8 @@ function Analyze({
         </div>
       </div>
       <div className="result-grid">
-        <ResultCases open={setSelectedResult} selected={new Set(selectedEvidence.map(item=>item.reference))} results={results.filter((item) => item.documentType === "complaint")} />
-        <ResultLaws open={setSelectedResult} selected={new Set(selectedEvidence.map(item=>item.reference))} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
+        <ResultCases open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "complaint")} />
+        <ResultLaws open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
       {analysisError && <p className="upload-error">{analysisError}</p>}
       <section className="draft-card">
@@ -560,6 +533,7 @@ function Analyze({
             </h3>
             {!preview?.evidence.length && <p>분석 후 현행 법령 근거가 표시됩니다.</p>}
             {(draft?selectedEvidence:preview?.evidence||[]).map(item=><div className={draft?'selected-evidence':''} key={item.reference}><b>[{item.reference}] {item.title}</b><p>{'reason' in item?item.reason:`${item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'} · 후보 관련도 ${Math.round(item.score)}`}</p></div>)}
+            {draft&&preview?.evidence.length&&<div className="manual-evidence-picker"><strong>재작성에 사용할 근거</strong><p>선택을 바꾼 뒤 아래 버튼을 누르면 선택 자료만 AI에 제공합니다.</p>{preview.evidence.map(item=><label key={item.reference}><input type="checkbox" checked={manualEvidenceRefs.includes(item.reference)} disabled={busy} onChange={event=>setManualEvidenceRefs(current=>event.target.checked?[...current,item.reference]:current.filter(reference=>reference!==item.reference))}/><span><b>[{item.reference}] {item.title}</b><small>{item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'}</small></span></label>)}<button className="analyze" disabled={busy||!manualEvidenceRefs.length} onClick={regenerateWithSelected}>{busy?'작성 중…':'선택한 근거로 다시 작성'}</button></div>}
             <label>
               이관 가능 부서
               <select defaultValue={department}><option>{department}</option></select>

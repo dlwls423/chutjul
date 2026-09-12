@@ -62,6 +62,20 @@ export function summaryText(value: SafeComplaintSummary) {
   return [value.purpose, ...value.essentialFacts, ...value.legalQuestions, ...value.requestedAnswer].join(' ');
 }
 
+export function summaryToEditableText(value: SafeComplaintSummary) {
+  const section=(title:string,items:string[])=>items.length?`${title}\n${items.map(item=>`- ${item}`).join('\n')}`:'';
+  return [`민원 목적\n${value.purpose}`,section('핵심 사실',value.essentialFacts),section('법적 쟁점',value.legalQuestions),section('답변 요청사항',value.requestedAnswer),section('추가 확인사항',value.uncertainties)].filter(Boolean).join('\n\n');
+}
+
+export function editableTextToSummary(text:string):SafeComplaintSummary{
+  const cleanText=text.replace(/\u0000/g,'').trim();
+  const read=(title:string,next:string[])=>{const start=cleanText.indexOf(title);if(start<0)return[];const after=cleanText.slice(start+title.length);const stops=next.map(label=>after.indexOf(label)).filter(index=>index>=0);const body=after.slice(0,stops.length?Math.min(...stops):undefined);return body.split(/\n+/).map(line=>clean(line.replace(/^[-•]\s*/,''))).filter(Boolean);};
+  const headings=['민원 목적','핵심 사실','법적 쟁점','답변 요청사항','추가 확인사항'];
+  const purpose=read('민원 목적',headings.slice(1))[0];
+  if(purpose)return normalize({purpose,essentialFacts:read('핵심 사실',headings.slice(2)),legalQuestions:read('법적 쟁점',headings.slice(3)),requestedAnswer:read('답변 요청사항',headings.slice(4)),uncertainties:read('추가 확인사항',[])},fallback(cleanText));
+  return fallback(cleanText);
+}
+
 export async function summarizeLocally(raw: string, report: (status: string) => void) {
   const masked = maskSensitiveText(raw).value;
   const backup = fallback(masked);

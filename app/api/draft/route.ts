@@ -62,20 +62,34 @@ export async function POST(request: Request) {
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
       return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
-    if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature'].includes(k))) throw new Error('INVALID_INPUT');
+    if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature','selectedReferences'].includes(k))) throw new Error('INVALID_INPUT');
     if (typeof body.envelope !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature || '')) throw new Error('INVALID_INPUT');
     const signature = new Uint8Array(body.signature.match(/../g).map((v: string) => parseInt(v,16)));
     if (!await crypto.subtle.verify('HMAC', await key(), signature, encoder.encode(body.envelope))) throw new Error('INVALID_INPUT');
     const approved = JSON.parse(body.envelope);
     if (approved.user !== profile.id || approved.department !== profile.department || approved.expires < Date.now()) throw new Error('REVIEW_EXPIRED');
+    let outboundPayload=approved.payload;
+    if(body.selectedReferences!==undefined){
+      if(!Array.isArray(body.selectedReferences)||!body.selectedReferences.length||body.selectedReferences.length>8||body.selectedReferences.some((item:unknown)=>typeof item!=='string'))throw new Error('INVALID_INPUT');
+      const parsedPayload=JSON.parse(approved.payload);
+      const parsedInput=JSON.parse(parsedPayload.input) as {candidateEvidence:Evidence[];[key:string]:unknown};
+      const available=new Set(parsedInput.candidateEvidence.map(item=>item.reference));
+      const requested=[...new Set(body.selectedReferences as string[])];
+      if(requested.some(reference=>!available.has(reference)))throw new Error('INVALID_INPUT');
+      parsedInput.candidateEvidence=parsedInput.candidateEvidence.filter(item=>requested.includes(item.reference));
+      parsedInput.userSelection='사용자가 직접 선택한 근거만 제공됨. 이 후보들 중 질문과 직접 관련된 내용을 인용하여 답변할 것.';
+      parsedPayload.input=JSON.stringify(parsedInput,null,2);
+      parsedPayload.text.format.schema.properties.selectedEvidence.items.properties.reference.enum=requested;
+      outboundPayload=JSON.stringify(parsedPayload);
+    }
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('NOT_CONFIGURED');
-    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: approved.payload, signal: AbortSignal.timeout(60000) });
+    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: outboundPayload, signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error('GENERATION_FAILED');
     const result = await response.json();
     const outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
     const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];draft:string};
-    const approvedInput=JSON.parse(JSON.parse(approved.payload).input) as {candidateEvidence:Evidence[]};
+    const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[]};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
     if(!Array.isArray(structured.selectedEvidence)||!structured.selectedEvidence.length||structured.selectedEvidence.some(item=>!evidenceMap.has(item.reference)))throw new Error('OUTPUT_REVIEW_FAILED');
     let draft = String(structured.draft||'');
