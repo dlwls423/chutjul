@@ -7,7 +7,7 @@ import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
-import { summarizeLocally, summaryText, type SafeComplaintSummary } from "../lib/local-draft";
+import { summarizeLocally, type SafeComplaintSummary } from "../lib/local-draft";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -54,6 +54,7 @@ type SearchItem = {
   score: number; matchedTerms: string[]; legalReferences: string[];
   complaintMetadata: Record<string, unknown>;
   guideMatches: { pageNumber: number | null; snippet: string }[];
+  evidenceReference?: string;
 };
 type SearchCache = { results: SearchItem[]; searchedQuery: string; tab: string; sort: string; category: string; legal: string; visibleCount: number };
 let searchCache: SearchCache | null = null;
@@ -398,10 +399,13 @@ function Analyze({
   const [analysisError, setAnalysisError] = useState("");
   const [analysisStatus, setAnalysisStatus] = useState("분석 전");
   const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(null);
-  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;title:string;effectiveFrom:string;source:string;excerpt:string}[] } | null>(null);
+  const [summaryApproved, setSummaryApproved] = useState(false);
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
   const [approved, setApproved] = useState(false);
   const [draft, setDraft] = useState("");
   const [localModel, setLocalModel] = useState("");
+  const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
+  const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
   async function postDraft(body: unknown) {
     const response=await fetch('/api/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
     const payload=await response.json();
@@ -412,21 +416,12 @@ function Analyze({
     if (busy || !text.trim()) return;
     setBusy(true);
     setAnalysisError("");
-    setPreview(null); setApproved(false); setDraft(""); setSafeSummary(null);
+    setPreview(null); setApproved(false); setSummaryApproved(false); setDraft(""); setSafeSummary(null); setSelectedEvidence([]); setResults([]);
     try {
       const local=await summarizeLocally(`${title}\n${text}`,setAnalysisStatus);
       setSafeSummary(local.summary); setLocalModel(local.model); setMasked(true);
-      const safeQuery=summaryText(local.summary).slice(0,2000);
-      setAnalysisStatus('비식별 요약으로 부서 자료와 공개 법령 검색 중');
-      const [searchResponse,draftPreview]=await Promise.all([
-        fetch(`/api/search?q=${encodeURIComponent(safeQuery)}&department=${encodeURIComponent(department)}`, { cache: "no-store" }),
-        postDraft({action:'prepare',summary:local.summary}),
-      ]);
-      const payload = await searchResponse.json();
-      if (!searchResponse.ok) throw new Error(payload.error || "분석 결과를 불러오지 못했습니다.");
-      setResults(payload.results || []); setPreview(draftPreview);
-      setAnalysisStatus('분석 완료 · AI 전송자료 확인 필요');
-      flash("분석이 완료되었습니다. AI 전송자료를 확인해 주세요.");
+      setAnalysisStatus('비식별 요약 완료 · 내용을 확인하고 수락해 주세요');
+      flash("기기에서 비식별 요약을 만들었습니다. 내용을 확인해 주세요.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.";
       setAnalysisError(message);
@@ -436,12 +431,22 @@ function Analyze({
       setBusy(false);
     }
   }
+  async function findEvidence(){
+    if(busy||!safeSummary||!summaryApproved)return;
+    setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);setDraft('');setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
+    try{
+      const prepared=await postDraft({action:'prepare',summary:safeSummary});
+      const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
+      setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
+      setAnalysisStatus('후보 근거 검색 완료 · AI 전송자료 확인 필요');setApproved(false);flash('관련 민원·법령·안내서 후보를 찾았습니다.');
+    }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
+  }
   async function generateDraft(){
     if(busy||!preview||!approved)return;
     setBusy(true);setAnalysisError('');setAnalysisStatus('확인한 자료로 답변 초안 작성 중');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
-      setDraft(result.draft);setApproved(false);setAnalysisStatus('초안 작성 완료 · 담당자 검토 필요');flash('답변 초안이 작성되었습니다.');
+      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setApproved(false);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
   return (
@@ -470,14 +475,14 @@ function Analyze({
         <div className="fields">
           <label>
             민원 제목
-            <input value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); setSafeSummary(null); setDraft(""); }} />
+            <input value={title} onChange={(event) => { setTitle(event.target.value); setPreview(null); setSafeSummary(null); setSummaryApproved(false); setDraft(""); setResults([]); }} />
           </label>
           <label>
             민원 본문
             <textarea
               value={masked ? maskSensitiveText(text).value : text}
               readOnly={masked}
-              onChange={(e) => { setText(e.target.value); setPreview(null); setSafeSummary(null); setDraft(""); }}
+              onChange={(e) => { setText(e.target.value); setPreview(null); setSafeSummary(null); setSummaryApproved(false); setDraft(""); setResults([]); }}
             />
           </label>
           <div className="meta-row">
@@ -509,30 +514,28 @@ function Analyze({
         />
         <span className="done">{busy ? analysisStatus : results.length ? `✓ 근거 ${results.length}건 확인` : analysisStatus}</span>
       </div>
-      {safeSummary && <details className="safe-summary"><summary>기기에서 만든 비식별 요약 확인 · {localModel}</summary><div><b>{safeSummary.purpose}</b>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}><strong>쟁점</strong> {item}</p>)}{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}><strong>요청</strong> {item}</p>)}</div></details>}
+      {safeSummary && <section className="safe-summary"><div className="summary-review-head"><div><b>기기에서 만든 비식별 요약</b><small>{localModel} · 아직 외부 AI로 전송되지 않았습니다.</small></div><span>확인 필요</span></div><div className="summary-review-body"><h3>{safeSummary.purpose}</h3><h4>핵심 사실</h4>{safeSummary.essentialFacts.map((item,index)=><p key={`f-${index}`}>• {item}</p>)}<h4>법적 쟁점</h4>{safeSummary.legalQuestions.map((item,index)=><p key={`q-${index}`}>• {item}</p>)}<h4>답변 요청사항</h4>{safeSummary.requestedAnswer.map((item,index)=><p key={`r-${index}`}>• {item}</p>)}</div><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)} onChange={event=>setSummaryApproved(event.target.checked)} /><span>요약이 민원의 핵심 사실과 요청사항을 올바르게 반영하고 개인정보가 없음을 확인했습니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)} onClick={findEvidence}>{preview?'요약 수락 완료':busy?analysisStatus:'요약 수락하고 관련 자료 찾기'}</button></section>}
       <div className="summary-strip">
         <div>
-          <small>소관 판단</small>
-          <strong>
-            소관 <em>94%</em>
-          </strong>
+          <small>개인정보 처리</small>
+          <strong>{safeSummary ? "기기 내 비식별 완료" : "분석 전"}</strong>
         </div>
         <div>
-          <small>업무 분류</small>
-          <strong>마이데이터 › 사업자 허가</strong>
+          <small>검색 범위</small>
+          <strong>{department} 자료</strong>
         </div>
         <div>
           <small>핵심 쟁점</small>
-          <strong>법정 처리기한 · 지연 통지</strong>
+          <strong>{safeSummary?.legalQuestions[0] || "요약 확인 후 표시"}</strong>
         </div>
         <div>
-          <small>신규 유형 가능성</small>
-          <strong>낮음</strong>
+          <small>근거 후보</small>
+          <strong>{results.length ? `${results.length}건` : "요약 수락 후 검색"}</strong>
         </div>
       </div>
       <div className="result-grid">
-        <ResultCases setModal={setModal} results={results.filter((item) => item.documentType === "complaint")} />
-        <ResultLaws setModal={setModal} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
+        <ResultCases open={setSelectedResult} selected={new Set(selectedEvidence.map(item=>item.reference))} results={results.filter((item) => item.documentType === "complaint")} />
+        <ResultLaws open={setSelectedResult} selected={new Set(selectedEvidence.map(item=>item.reference))} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
       {analysisError && <p className="upload-error">{analysisError}</p>}
       <section className="draft-card">
@@ -553,10 +556,10 @@ function Analyze({
           </div> : <div className="editor draft-empty"><b>민원을 분석하면 전송 전 확인 화면이 표시됩니다.</b><p>확인 전에는 외부 AI로 어떤 내용도 전송되지 않습니다.</p></div>}
           <aside className="evidence">
             <h3>
-              사용 근거 <span>{preview?.evidence.length || 0}</span>
+              {draft ? "AI가 선택한 근거" : "AI 선택 후보"} <span>{draft ? selectedEvidence.length : preview?.evidence.length || 0}</span>
             </h3>
             {!preview?.evidence.length && <p>분석 후 현행 법령 근거가 표시됩니다.</p>}
-            {preview?.evidence.map(item=><div key={item.reference}><b>[{item.reference}] {item.title}</b><p>시행일 {item.effectiveFrom}</p></div>)}
+            {(draft?selectedEvidence:preview?.evidence||[]).map(item=><div className={draft?'selected-evidence':''} key={item.reference}><b>[{item.reference}] {item.title}</b><p>{'reason' in item?item.reason:`${item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'} · 후보 관련도 ${Math.round(item.score)}`}</p></div>)}
             <label>
               이관 가능 부서
               <select defaultValue={department}><option>{department}</option></select>
@@ -568,44 +571,62 @@ function Analyze({
           </aside>
         </div>
       </section>
+      {selectedResult && <AnalysisResultDetail item={selectedResult} query={safeSummary?.purpose||title} close={()=>setSelectedResult(null)} />}
     </div>
   );
 }
-function ResultCases({ setModal, results }: { setModal: (s: string) => void; results: SearchItem[] }) {
+function AnalysisResultDetail({item,query,close}:{item:SearchItem;query:string;close:()=>void}){
+  const [pdfData,setPdfData]=useState<{pdfUrl:string;matches:{pageNumber:number;snippet:string;matchedTerms:string[]}[]}|null>(null);
+  const [loading,setLoading]=useState(item.documentType==='guide');
+  const [activePage,setActivePage]=useState(1);
+  useEffect(()=>{
+    if(item.documentType!=='guide')return;
+    let active=true;
+    fetch(`/api/documents/${encodeURIComponent(item.id)}/pdf?q=${encodeURIComponent(query)}`,{cache:'no-store'}).then(async response=>{const payload=await response.json();if(!response.ok)throw new Error(payload.error);if(active){setPdfData(payload);setActivePage(payload.matches?.[0]?.pageNumber||1);}}).catch(()=>{if(active)setPdfData(null);}).finally(()=>{if(active)setLoading(false);});
+    return()=>{active=false;};
+  },[item.id,item.documentType,query]);
+  return <div className="search-detail-backdrop" onMouseDown={close}><section className="search-detail" onMouseDown={event=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="분석 근거 상세">
+    <header><div><span>{item.documentType==='complaint'?'유사민원':item.documentType==='guide'?'안내서':'현행 법령'} {item.evidenceReference&&`후보 ${item.evidenceReference}`}</span><h3>{item.title}</h3><p>{item.department} · {item.createdAt?.slice(0,10)}</p></div><button aria-label="닫기" onClick={close}>×</button></header>
+    <div className="search-detail-body">
+      {item.documentType==='complaint'&&<><ComplaintSearchMetadata item={item}/><section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>민원 질의</h4><small>저장된 비식별 질의</small></div></div><p>{item.question||'질의 내용이 없습니다.'}</p></section><section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>답변 내용</h4><small>처리부서의 답변</small></div></div><p>{item.answer||'답변 내용이 없습니다.'}</p></section></>}
+      {item.documentType==='law'&&<section><h4>현행 법령 내용</h4><p>{item.content||item.snippet}</p>{String(item.complaintMetadata.source_url||'').startsWith('https://www.law.go.kr/')&&<a href={String(item.complaintMetadata.source_url)} target="_blank" rel="noreferrer">국가법령정보센터 원문 ↗</a>}</section>}
+      {item.documentType==='guide'&&<section className="guide-search-pages"><h4>관련 문장과 원본 페이지</h4>{loading?<p>안내서 페이지를 불러오고 있습니다…</p>:pdfData?<div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.map((match,index)=><button className={activePage===match.pageNumber?'on':''} key={`${match.pageNumber}-${index}`} onClick={()=>setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span>{match.snippet}</span></button>)}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><a href={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><iframe key={`${item.id}-${activePage}`} title={`${item.title} ${activePage}쪽`} src={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`}/></div></div>:<p>원본 PDF 페이지 정보를 불러오지 못했습니다.</p>}</section>}
+    </div>
+  </section></div>;
+}
+function ResultCases({ open, selected, results }: { open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
   return (
     <section className="result-card">
       <Head title="유사 민원" count={`${results.length}건`} />
       {!results.length && <div className="case"><p>민원을 분석하면 현재 부서의 유사 사례가 표시됩니다.</p></div>}
       {results.slice(0, 2).map((c, i) => (
-        <div className={"case " + (i === 0 ? "selected" : "")} key={c.id}>
+        <div className={"case " + (selected.has(c.evidenceReference||'') ? "ai-selected" : i === 0 ? "selected" : "")} key={c.id}>
           <div>
-            <b>관련도 {Math.round(c.score)}</b>
+            <b>{selected.has(c.evidenceReference||'') ? `✓ AI 선택 ${c.evidenceReference}` : `후보 ${c.evidenceReference||''} · 관련도 ${Math.round(c.score)}`}</b>
             <small>{c.createdAt?.slice(0, 10)} · {c.department}</small>
           </div>
           <h4>{c.title}</h4>
           <p>{c.snippet}</p>
-          {i === 0 && (
-            <button onClick={() => setModal(c.title)}>원문 보기 ↗</button>
-          )}
+          <button onClick={() => open(c)}>원문 보기 ↗</button>
         </div>
       ))}
-      {results.length > 2 && <button className="more" onClick={() => setModal("유사 민원 전체 결과")}>유사 민원 {results.length - 2}건 더보기　⌄</button>}
+      {results.length > 2 && <button className="more" disabled>후보 민원 {results.length - 2}건 추가 확인 가능</button>}
     </section>
   );
 }
-function ResultLaws({ setModal, results }: { setModal: (s: string) => void; results: SearchItem[] }) {
+function ResultLaws({ open, selected, results }: { open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
   return (
     <section className="result-card">
       <Head title="관련 법령 · 안내서" count={`${results.length}건`} />
       {!results.length && <div className="law"><p>민원을 분석하면 최신 현행 법령과 안내서가 표시됩니다.</p></div>}
-      {results.slice(0, 3).map((item, index) => <div className={`law ${index === 0 ? "selected" : ""}`} key={item.id}>
-        <b className={item.documentType === "guide" ? "guide" : ""}>{item.documentType === "guide" ? "안내서" : "현행 법령"}</b>
+      {results.slice(0, 5).map((item, index) => <div className={`law ${selected.has(item.evidenceReference||'') ? "ai-selected" : index === 0 ? "selected" : ""}`} key={item.id}>
+        <b className={item.documentType === "guide" ? "guide" : ""}>{selected.has(item.evidenceReference||'') ? `✓ AI 선택 ${item.evidenceReference}` : `${item.documentType === "guide" ? "안내서" : "현행 법령"} 후보 ${item.evidenceReference||''}`}</b>
         <h4>{item.title}</h4>
         <p>{item.complaintMetadata?.effective_from ? `시행일 ${String(item.complaintMetadata.effective_from)}` : item.category}</p>
         <blockquote>{item.snippet}</blockquote>
-        <button onClick={() => setModal(item.title)}>상세 보기 ↗</button>
+        <button onClick={() => open(item)}>상세 보기 ↗</button>
       </div>)}
-      {results.length > 3 && <button className="more" onClick={() => setModal("관련 자료 전체 결과")}>관련 자료 {results.length - 3}건 더보기　⌄</button>}
+      {results.length > 5 && <button className="more" disabled>후보 자료 {results.length - 5}건 추가 확인 가능</button>}
     </section>
   );
 }
