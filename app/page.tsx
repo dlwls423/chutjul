@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import DocumentViewer from "../components/DocumentViewer";
+import PrivateAnalysis from "../components/PrivateAnalysis";
 import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
@@ -271,17 +272,9 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
         {view === "analyze" && (
           <>
             <div className="scope-notice">
-              🔒 답변 근거 범위: <b>{currentDepartment}</b> 자료만 검색합니다.
+              🔒 민원 원문은 기기 안에서 처리하고, 확인한 쟁점과 공개 법령으로 초안을 작성합니다.
             </div>
-            <Analyze
-              text={text}
-              setText={setText}
-              masked={masked}
-              setMasked={setMasked}
-              flash={flash}
-              setModal={setModal}
-              department={currentDepartment}
-            />
+            <PrivateAnalysis key={currentDepartment} />
           </>
         )}{" "}
         {view === "search" && (
