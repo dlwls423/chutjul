@@ -779,7 +779,7 @@ function Search({
         {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
         {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 단어가 제목·민원요지·질의·답변·본문에 포함된 자료를 찾아드립니다.</span></div>}
         {tab === "전체" && searchedQuery && !loading && !error && <div className="search-wide-board">
-          {([['complaint', '민원'], ['law', '법령'], ['guide', '안내서']] as const).map(([type, label]) => <section className={`search-result-column ${type}`} key={type}>
+          {([['complaint', '민원'], ['law', '법령'], ['guide', '안내서']] as const).map(([type, label]) => <section className={`search-result-column type-${type}`} key={type}>
             <header><div><span>{label.slice(0, 1)}</span><h4>{label}</h4></div><b>{groupedResults[type].length}건</b></header>
             <div className="search-results">{groupedResults[type].slice(0, 6).map(resultCard)}</div>
             {!groupedResults[type].length && <p className="column-empty">일치하는 {label} 자료가 없습니다.</p>}
