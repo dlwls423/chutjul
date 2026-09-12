@@ -667,6 +667,11 @@ function Search({
   const counts = { 전체: results.length, 유사민원: results.filter((x) => x.documentType === "complaint").length, 법령: results.filter((x) => x.documentType === "law").length, 안내서: results.filter((x) => x.documentType === "guide").length };
   const categories = [...new Set(results.map((x) => x.category).filter(Boolean))] as string[];
   const laws = [...new Set(results.flatMap((x) => x.legalReferences))];
+  const groupedResults = {
+    complaint: sorted.filter((item) => item.documentType === "complaint"),
+    law: sorted.filter((item) => item.documentType === "law"),
+    guide: sorted.filter((item) => item.documentType === "guide"),
+  };
   const recommend = (word: string) => { setQuery(word); void runSearch(word); };
   async function openResult(item: SearchItem) {
     setSelected(item); setPdfData(null); setActivePage(1);
@@ -679,6 +684,27 @@ function Search({
       setPdfData(payload); setActivePage(payload.matches?.[0]?.pageNumber || 1);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "PDF를 불러오지 못했습니다."); }
     finally { setPdfLoading(false); }
+  }
+  function resultCard(item: SearchItem) {
+    const kind = item.documentType === "complaint" ? "민원" : item.documentType === "law" ? "법령" : "안내서";
+    return <article key={item.id}>
+      <div className="result-icon">{kind.slice(0, 1)}</div>
+      <div>
+        <div className="result-meta">
+          <b>{kind}</b>
+          <span>{item.createdAt?.slice(0, 10)} · {item.department}</span>
+          <em>일치도 {Math.min(99, Math.max(1, Math.round(item.score)))}점</em>
+        </div>
+        <h4><Highlighted text={item.title} terms={item.matchedTerms} /></h4>
+        <p><Highlighted text={item.snippet} terms={item.matchedTerms} /></p>
+        {item.documentType === "guide" && item.guideMatches.length > 0 && <div className="guide-hit-group"><b>본문 일치 결과 {item.guideMatches.length}개</b>{item.guideMatches.slice(0, 3).map((match, index) => <span key={`${match.pageNumber}-${index}`}>{match.pageNumber ? `${match.pageNumber}쪽 · ` : ""}<Highlighted text={match.snippet} terms={item.matchedTerms} /></span>)}</div>}
+        <div className="tags">
+          {item.category && <span>{item.category}</span>}
+          {item.matchedTerms.slice(0, 4).map((word) => <span key={word}>{word}</span>)}
+        </div>
+      </div>
+      <button className="open" onClick={() => void openResult(item)}>상세 보기 ↗</button>
+    </article>;
   }
   return (
     <div className="search-page">
@@ -752,32 +778,18 @@ function Search({
         {loading && <div className="search-state">저장된 자료에서 검색어가 일치하는 내용을 찾고 있습니다.</div>}
         {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
         {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 단어가 제목·민원요지·질의·답변·본문에 포함된 자료를 찾아드립니다.</span></div>}
-        <div className="search-results">
-          {!loading && sorted.slice(0, visibleCount).map((item) => {
-            const kind = item.documentType === "complaint" ? "유사민원" : item.documentType === "law" ? "법령" : "안내서";
-            return <article key={item.id}>
-              <div className="result-icon">{kind.slice(0, 1)}</div>
-              <div>
-                <div className="result-meta">
-                  <b>{kind}</b>
-                  <span>{item.createdAt?.slice(0, 10)} · {item.department}</span>
-                  <em>일치도 {Math.min(99, Math.max(1, Math.round(item.score)))}점</em>
-                </div>
-                <h4><Highlighted text={item.title} terms={item.matchedTerms} /></h4>
-                <p><Highlighted text={item.snippet} terms={item.matchedTerms} /></p>
-                {item.documentType === "guide" && item.guideMatches.length > 0 && <div className="guide-hit-group"><b>본문 일치 결과 {item.guideMatches.length}개</b>{item.guideMatches.slice(0, 3).map((match, index) => <span key={`${match.pageNumber}-${index}`}>{match.pageNumber ? `${match.pageNumber}쪽 · ` : ""}<Highlighted text={match.snippet} terms={item.matchedTerms} /></span>)}</div>}
-                <div className="tags">
-                  {item.category && <span>{item.category}</span>}
-                  {item.matchedTerms.slice(0, 4).map((word) => <span key={word}>{word}</span>)}
-                </div>
-              </div>
-              <button className="open" onClick={() => void openResult(item)}>
-                상세 보기 ↗
-              </button>
-            </article>;
-          })}
+        {tab === "전체" && searchedQuery && !loading && !error && <div className="search-wide-board">
+          {([['complaint', '민원'], ['law', '법령'], ['guide', '안내서']] as const).map(([type, label]) => <section className={`search-result-column ${type}`} key={type}>
+            <header><div><span>{label.slice(0, 1)}</span><h4>{label}</h4></div><b>{groupedResults[type].length}건</b></header>
+            <div className="search-results">{groupedResults[type].slice(0, 6).map(resultCard)}</div>
+            {!groupedResults[type].length && <p className="column-empty">일치하는 {label} 자료가 없습니다.</p>}
+            {groupedResults[type].length > 6 && <button className="column-more" onClick={() => { setTab(type === 'complaint' ? '유사민원' : label); setVisibleCount(20); }}>전체 {label} 결과 보기</button>}
+          </section>)}
+        </div>}
+        <div className={`search-results search-standard-results ${tab === "전체" ? "all-tab" : ""}`}>
+          {!loading && sorted.slice(0, visibleCount).map(resultCard)}
         </div>
-        {visibleCount < sorted.length && <button className="load-more" onClick={() => setVisibleCount((count) => count + 20)}>결과 더보기</button>}
+        {visibleCount < sorted.length && <button className={`load-more ${tab === "전체" ? "all-tab" : ""}`} onClick={() => setVisibleCount((count) => count + 20)}>결과 더보기</button>}
       </div>
       {selected && <div className="search-detail-backdrop" onMouseDown={() => setSelected(null)}>
         <section className="search-detail" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="검색 결과 상세">
