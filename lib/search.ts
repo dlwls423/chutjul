@@ -15,6 +15,8 @@ type SearchChunk = { document_id: string; content: string; metadata: Record<stri
 type ScopedSource = { id: string };
 import { searchCurrentLaws } from "./legal-search";
 export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[]; complaintMetadata: Record<string, unknown>; guideMatches: { pageNumber: number | null; snippet: string }[] };
+type CachedSearch={expires:number;value:KeywordSearchResult[]};
+const searchCache=new Map<string,CachedSearch>();
 
 function config() {
   const url = process.env.SUPABASE_URL;
@@ -50,6 +52,9 @@ export async function keywordSearch(department: string, rawQuery: string) {
   const query = rawQuery.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 100);
   const terms = [...new Set(normalized(query).split(" ").filter(Boolean))];
   if (!terms.length) return [];
+  const cacheKey=`${department}\u0000${normalized(query)}`;
+  const cached=searchCache.get(cacheKey);
+  if(cached&&cached.expires>Date.now())return cached.value;
   // rag_documents.department is the complaint's processing department. Access
   // scope belongs to source_files.owning_department, so resolve source IDs first.
   const [sources, legalResults] = await Promise.all([
@@ -57,16 +62,10 @@ export async function keywordSearch(department: string, rawQuery: string) {
     searchCurrentLaws(rawQuery, department),
   ]);
   if (!sources.length) return legalResults;
-  const docs: SearchDocument[] = [];
-  for (let offset = 0; offset < sources.length; offset += 40) {
-    const ids = sources.slice(offset, offset + 40).map((source) => source.id).join(",");
-    docs.push(...await request<SearchDocument[]>(`/rest/v1/rag_documents?source_file_id=in.(${ids})&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,question_original,answer_original,metadata,created_at&order=created_at.desc&limit=500`));
-  }
-  const chunks: SearchChunk[] = [];
-  for (let offset = 0; offset < docs.length; offset += 40) {
-    const ids = docs.slice(offset, offset + 40).map((doc) => doc.id).join(",");
-    if (ids) chunks.push(...await request<SearchChunk[]>(`/rest/v1/rag_chunks?document_id=in.(${ids})${textMatchFilter(terms,["content"])}&select=document_id,content,metadata&limit=1000`));
-  }
+  const sourceBatches=Array.from({length:Math.ceil(sources.length/40)},(_,index)=>sources.slice(index*40,index*40+40));
+  const docs=(await Promise.all(sourceBatches.map((batch)=>{const ids=batch.map(source=>source.id).join(",");return request<SearchDocument[]>(`/rest/v1/rag_documents?source_file_id=in.(${ids})&status=eq.ready&select=id,title,document_type,department,category_major,category_middle,category_minor,question_original,answer_original,metadata,created_at&order=created_at.desc&limit=500`);}))).flat();
+  const documentBatches=Array.from({length:Math.ceil(docs.length/40)},(_,index)=>docs.slice(index*40,index*40+40));
+  const chunks=(await Promise.all(documentBatches.map((batch)=>{const ids=batch.map(doc=>doc.id).join(",");return request<SearchChunk[]>(`/rest/v1/rag_chunks?document_id=in.(${ids})${textMatchFilter(terms,["content"])}&select=document_id,content,metadata&limit=1000`);}))).flat();
   const byDocument = new Map<string, SearchChunk[]>();
   for (const chunk of chunks) byDocument.set(chunk.document_id, [...(byDocument.get(chunk.document_id) || []), chunk]);
   const documentResults = docs.map((doc): KeywordSearchResult | null => {
@@ -93,5 +92,8 @@ export async function keywordSearch(department: string, rawQuery: string) {
     const compactContent=doc.document_type==="complaint"?[doc.question_original,doc.answer_original].filter(Boolean).join("\n\n").slice(0,12000):"";
     return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: compactContent, score, matchedTerms, legalReferences: legal, complaintMetadata: complaintMeta || {}, guideMatches };
   }).filter((item): item is KeywordSearchResult => item !== null);
-  return [...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+  const result=[...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+  searchCache.set(cacheKey,{expires:Date.now()+60_000,value:result});
+  if(searchCache.size>100){const first=searchCache.keys().next().value;if(first)searchCache.delete(first);}
+  return result;
 }
