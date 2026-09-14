@@ -2,6 +2,7 @@ import { serviceRequest } from "./auth";
 import { fetchOfficialLawJson } from "./law-official-client";
 
 type LegalSource={id:string;canonical_name:string;source_target:"law"|"admrul";external_id:string|null;enabled:boolean};
+const RETIRED_LEGAL_SOURCES=["공공기관의 가명정보 결합 및 반출 등에 관한 고시"] as const;
 const text=(value:unknown)=>value==null?"":String(value).trim();
 const pick=(object:Record<string,unknown>,keys:string[])=>{for(const key of keys)if(text(object[key]))return text(object[key]);return"";};
 function objects(value:unknown,out:Record<string,unknown>[]=[]){if(Array.isArray(value))value.forEach(v=>objects(v,out));else if(value&&typeof value==="object"){out.push(value as Record<string,unknown>);Object.values(value).forEach(v=>objects(v,out));}return out;}
@@ -21,6 +22,7 @@ function provisions(payload:unknown){const rows:{provision_key:string;article_nu
 
 export async function syncLegalSources(){
   const oc=process.env.LAW_OPEN_API_OC;if(!oc)throw new Error("LAW_OPEN_API_OC_NOT_CONFIGURED");
+  for(const name of RETIRED_LEGAL_SOURCES)await serviceRequest(`/rest/v1/legal_sources?canonical_name=eq.${encodeURIComponent(name)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});
   const sources=await serviceRequest<LegalSource[]>("/rest/v1/legal_sources?enabled=eq.true&select=id,canonical_name,source_target,external_id,enabled&order=priority.desc");
   const runRows=await serviceRequest<{id:string}[]>("/rest/v1/legal_sync_runs",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({status:"running"})});const runId=runRows[0]?.id;
   let changed=0;const errors:{name:string;error:string}[]=[];
@@ -44,4 +46,4 @@ export async function syncLegalSources(){
   const result={status:errors.length?(changed?"partial":"failed"):"completed",checked_count:sources.length,changed_count:changed,failed_count:errors.length,error_summary:errors,finished_at:new Date().toISOString()};if(runId)await serviceRequest(`/rest/v1/legal_sync_runs?id=eq.${runId}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(result)});return result;
 }
 
-export async function legalSyncStatus(){const [sources,runs]=await Promise.all([serviceRequest<Record<string,unknown>[]>("/rest/v1/legal_sources?select=canonical_name,source_target,priority,external_id,last_checked_at,last_changed_at,last_error&order=priority.desc"),serviceRequest<Record<string,unknown>[]>("/rest/v1/legal_sync_runs?select=*&order=started_at.desc&limit=10")]);return{sources,runs};}
+export async function legalSyncStatus(){const retired=RETIRED_LEGAL_SOURCES.map(encodeURIComponent).join(",");const [sources,runs]=await Promise.all([serviceRequest<Record<string,unknown>[]>(`/rest/v1/legal_sources?canonical_name=not.in.(${retired})&select=canonical_name,source_target,priority,external_id,last_checked_at,last_changed_at,last_error&order=priority.desc`),serviceRequest<Record<string,unknown>[]>("/rest/v1/legal_sync_runs?select=*&order=started_at.desc&limit=10")]);return{sources,runs};}
