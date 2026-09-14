@@ -389,7 +389,17 @@ function verifyBrowserPrivacy(
     throw new Error("BROWSER_PRIVACY_INVALID");
   // Browser masking is the first boundary. Repeat the same protection on the
   // server so a newly added detector cannot reject an otherwise recoverable job.
-  const sanitize = (value: string) => maskPersonalInfo(value || "").masked;
+  const sanitize = (value: string) => {
+    let safe = maskPersonalInfo(value || "").masked;
+    // If the detector recognizes a format newer than the first-pass masker,
+    // remove the exact finding locally and validate once more. No finding value
+    // is included in errors or sent outside this server.
+    for (const finding of detectResidualSensitiveInfo(safe)) {
+      const placeholder = finding.type === "휴대전화" ? "[전화번호]" : `[${finding.type}]`;
+      safe = safe.split(finding.value).join(placeholder);
+    }
+    return safe;
+  };
   const structuredComplaint = {
     purpose: sanitize(result.structuredComplaint.purpose),
     essentialFacts: result.structuredComplaint.essentialFacts.map(sanitize),
@@ -502,6 +512,11 @@ export function maskPersonalInfo(text: string) {
       "주소",
       /(?:주소|소재지|거주지)\s*[:：]?\s*[^\n]{5,80}/g,
       () => "주소: [주소]",
+    ],
+    [
+      "카드·계좌번호",
+      /(?:계좌|카드)(?:번호)?\s*[:：]?\s*\d{3,6}(?:[-\s]\d{2,6}){2,3}/g,
+      (v) => `${v.match(/^(?:계좌|카드)(?:번호)?/)?.[0] || "계좌·카드번호"}: [계좌·카드번호]`,
     ],
     [
       "카드·계좌번호",
