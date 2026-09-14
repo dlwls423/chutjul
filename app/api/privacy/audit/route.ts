@@ -50,13 +50,14 @@ export async function POST(request:Request){
       const answer=answerResult.masked;
       const content=[question&&`질문: ${question}`,answer&&`답변: ${answer}`].filter(Boolean).join("\n\n");
       const metadata=scrubMetadata(doc.metadata||{}) as Record<string,unknown>;
+      const metadataChanged=JSON.stringify(metadata)!==JSON.stringify(doc.metadata||{});
       metadata.privacy_audit={checked_at:new Date().toISOString(),schema_version:10,identifier_policy:"restricted_columns_only",missed_findings:questionResult.findings.length+answerResult.findings.length,known_overmasking_repaired:countKnownOvermasking(before)};
-      const changed=title!==doc.title||question!==doc.question_original||answer!==doc.answer_original||content!==doc.content_masked||JSON.stringify(metadata)!==JSON.stringify(doc.metadata||{});
+      const changed=title!==doc.title||question!==doc.question_original||answer!==doc.answer_original||content!==doc.content_masked||metadataChanged;
       const chunks=await serviceRequest<Chunk[]>(`/rest/v1/rag_chunks?document_id=eq.${doc.id}&select=id,chunk_index,content,metadata&order=chunk_index.asc`);
       const safeChunks=chunks.map(chunk=>({...chunk,content:safeChunk(chunk.content),metadata:scrubMetadata(chunk.metadata||{}) as Record<string,unknown>}));
       const changedChunks=safeChunks.filter((chunk,index)=>chunk.content!==chunks[index].content||JSON.stringify(chunk.metadata)!==JSON.stringify(chunks[index].metadata||{}));
       if(body.apply===true){
-        if(changed)await serviceRequest(`/rest/v1/rag_documents?id=eq.${doc.id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({title,question_original:question,answer_original:answer,content_original:content,content_masked:content,metadata})});
+        await serviceRequest(`/rest/v1/rag_documents?id=eq.${doc.id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({title,question_original:question,answer_original:answer,content_original:content,content_masked:content,metadata})});
         if(changedChunks.length){
           const vectors=await embeddings(changedChunks.map(chunk=>chunk.content));
           for(let index=0;index<changedChunks.length;index++)await serviceRequest(`/rest/v1/rag_chunks?id=eq.${changedChunks[index].id}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({content:changedChunks[index].content,metadata:changedChunks[index].metadata,token_estimate:Math.ceil(changedChunks[index].content.length/3),embedding:vectors[index]})});
