@@ -2,6 +2,7 @@ export type SensitiveFinding = { type: string; value: string };
 export function detectResidualSensitiveInfo(text: string) {
   const findings: SensitiveFinding[] = [];
   const rules: [string, RegExp][] = [
+    ["업무식별자", /\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi],
     [
       "휴대전화",
       /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,

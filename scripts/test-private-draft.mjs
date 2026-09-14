@@ -10,6 +10,7 @@ const replacement = {
   '../../../lib/search': uri('export async function keywordSearch(){return [{id:"law-1",title:"합성 검증 법령",documentType:"law",department:"공통 법령",category:"현행 법령",createdAt:"2026-01-01",snippet:"공개 법령 시험 본문입니다.",question:"",answer:"",content:"공개 법령 시험 본문입니다. 개인정보 처리 기준을 규정합니다.",score:90,matchedTerms:["개인정보"],legalReferences:[],complaintMetadata:{source_url:"https://www.law.go.kr/"},guideMatches:[]}]}'),
   '../../../lib/draft-policy': policy,
   '../../../lib/privacy-check': uri(await load('../lib/privacy-check.ts')),
+  '../../../lib/business-identifiers': uri(await load('../lib/business-identifiers.ts')),
 };
 let route=await load('../app/api/draft/route.ts');
 for(const [path,value] of Object.entries(replacement))route=route.replace(`'${path}'`,`'${value}'`);

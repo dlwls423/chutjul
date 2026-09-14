@@ -3,6 +3,7 @@ import { requireProfile } from '../../../lib/auth';
 import { keywordSearch, type KeywordSearchResult } from '../../../lib/search';
 import { DRAFT_INSTRUCTIONS } from '../../../lib/draft-policy';
 import { detectResidualSensitiveInfo } from '../../../lib/privacy-check';
+import { maskBusinessIdentifiers, repairKnownOvermasking } from '../../../lib/business-identifiers';
 export const runtime = 'edge';
 const encoder = new TextEncoder();
 const headers = { 'Cache-Control': 'no-store, private' };
@@ -27,10 +28,12 @@ function validateSummary(input: unknown): Summary {
 function safeEvidence(item:KeywordSearchResult,index:number):Evidence|null{
   const source=item.documentType==='complaint'?[item.question,item.answer].filter(Boolean).join('\n\n'):
     item.documentType==='guide'?(item.guideMatches.map(match=>match.snippet).join('\n')||item.snippet):item.content;
-  const excerpt=String(source||item.snippet||'').replace(/\u0000/g,'').slice(0,item.documentType==='law'?5000:3200);
-  const inspected=`${item.title}\n${excerpt}`;
+  let excerpt=maskBusinessIdentifiers(repairKnownOvermasking(String(source||item.snippet||''))).replace(/\u0000/g,'').slice(0,item.documentType==='law'?5000:3200);
+  for(const finding of detectResidualSensitiveInfo(excerpt).sort((a,b)=>b.value.length-a.value.length))excerpt=excerpt.split(finding.value).join(`[${finding.type}]`);
+  const safeTitle=maskBusinessIdentifiers(item.title);
+  const inspected=`${safeTitle}\n${excerpt}`;
   if(excerpt.length<20||detectResidualSensitiveInfo(inspected).length||externalIdentifiers.test(inspected))return null;
-  return{reference:`E${index+1}`,recordId:item.id,documentType:item.documentType,title:item.title,source:item.documentType==='law'?String(item.complaintMetadata.source_url||'국가법령정보센터'):`${item.department||''} 내부자료`,excerpt,score:item.score};
+  return{reference:`E${index+1}`,recordId:item.id,documentType:item.documentType,title:safeTitle,source:item.documentType==='law'?String(item.complaintMetadata.source_url||'국가법령정보센터'):`${item.department||''} 내부자료`,excerpt,score:item.score};
 }
 async function key() {
   const secret = process.env.DRAFT_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;

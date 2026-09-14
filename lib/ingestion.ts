@@ -7,6 +7,7 @@ import {
 } from "./epeople-parser";
 import { hasGuideFileKeyword } from "./document-classification";
 import { detectResidualSensitiveInfo } from "./privacy-check";
+import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 
 export type JobStatus =
   | "queued"
@@ -446,7 +447,10 @@ export async function parseFile(
 }
 export function maskPersonalInfo(text: string) {
   const findings: { type: string; value: string }[] = [];
-  let masked = text;
+  let masked = maskBusinessIdentifiers(text);
+  if (masked !== text)
+    for (const value of text.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || [])
+      findings.push({ type: "업무식별자", value });
   const rules: [string, RegExp, (v: string) => string][] = [
     [
       "휴대전화",
@@ -478,7 +482,7 @@ export function maskPersonalInfo(text: string) {
       /(?:성명|이름|대표자|담당자|처리자)\s*[:：]?\s*[가-힣]{2,5}/g,
       (v) => v.replace(/[가-힣]{2,5}$/, "[비식별]"),
     ],
-    ["성명", /[가-힣]{2,5}(?=\s*(?:담당자|처리자|대표자))/g, () => "[비식별]"],
+    ["성명", /[가-힣]{2,5}(?=\s+(?:담당자|처리자|대표자))/g, () => "[비식별]"],
     ["직함 인접 성명", /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g, () => "[비식별]"],
     ["직함 인접 성명", /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g, (v) => v.replace(/[가-힣]{2,4}$/, "[비식별]")],
     ["법인명", /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g, () => "[법인명]"],
@@ -512,7 +516,12 @@ export function maskAnswerAttribution(text: string) {
       return `${prefix}[비식별]`;
     },
   );
-  return { masked: head + tail, findings };
+  const answer = head + tail;
+  const masked = maskBusinessIdentifiers(answer);
+  if (masked !== answer)
+    for (const value of answer.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || [])
+      findings.push({ type: "업무식별자", value });
+  return { masked, findings };
 }
 export function chunkText(text: string, max = 900, overlap = 120) {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -602,7 +611,9 @@ function maskRow(row: Row) {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => [
       key,
-      key === "answer"
+      key === "application_number" || key === "receipt_number"
+        ? value
+        : key === "answer"
         ? maskAnswerAttribution(value).masked
         : maskPersonalInfo(value).masked,
     ]),
@@ -630,7 +641,7 @@ function buildMetadata(args: {
   } = args;
   const visibleRow = Object.fromEntries(
     Object.entries(row).filter(
-      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_"),
+      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "application_number" && key !== "receipt_number",
     ),
   );
   const structured = parseJsonObject(row.privacy_structured);
@@ -679,8 +690,6 @@ function buildMetadata(args: {
       full_text_stored: row.document_type === "guide",
     },
     complaint: {
-      application_number: row.application_number || null,
-      receipt_number: row.receipt_number || null,
       application_at: row.application_at || row.application_date || null,
       received_at: row.received_at || row.receipt_date || null,
       expected_completion_at: row.expected_completion_at || null,
@@ -919,15 +928,15 @@ export async function persistRecords(
       String(structured.purpose || "") ||
       summarize(item.row.question || item.masked);
     const context = [
-      `제목: ${item.row.title || args.file.name}`,
-      summary && `민원요지: ${summary}`,
+      `제목: ${removeBusinessIdentifiers(item.row.title || args.file.name)}`,
+      summary && `민원요지: ${removeBusinessIdentifiers(summary)}`,
     ]
       .filter(Boolean)
       .join("\n");
-    const searchable =
+    const searchable = removeBusinessIdentifiers(repairKnownOvermasking(
       item.row.document_type === "complaint" && item.row.privacy_outbound_text
         ? item.row.privacy_outbound_text
-        : item.masked;
+        : item.masked));
     const contents = [context, ...chunkText(searchable)].filter(
       (value, index, all) => value && all.indexOf(value) === index,
     );
@@ -966,7 +975,7 @@ export async function persistRecords(
         metadata: {
           source_file_id: args.fileId,
           row_number: x.rowNumber,
-          title: row.title || args.file.name,
+          title: removeBusinessIdentifiers(row.title || args.file.name),
           document_type: row.document_type || "complaint",
           department: row.department || null,
           category_major: row.category_major || null,

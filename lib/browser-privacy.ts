@@ -2,6 +2,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import { PDFDocument } from "pdf-lib";
 import { cleanExtractedText, parseEpeopleComplaint } from "./epeople-parser";
+import { maskBusinessIdentifiers } from "./business-identifiers";
 
 export type BrowserPrivacyPayload = {
   sourceHash: string;
@@ -38,6 +39,11 @@ function mask(text: string) {
       return typeof replacement === "string" ? replacement : replacement(match);
     });
   let value = text;
+  const identifierMasked = maskBusinessIdentifiers(value);
+  if (identifierMasked !== value)
+    counts["업무식별자"] = (counts["업무식별자"] || 0) +
+      (value.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || []).length;
+  value = identifierMasked;
   value = apply(
     value,
     "주민등록번호",
@@ -278,7 +284,8 @@ async function createMaskedPdf(
 function maskedRecord(row: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => {
-      if (key === "answer") return [key, maskAnswerAttribution(value).value];
+      if (key === "application_number" || key === "receipt_number") return [key, value];
+      if (key === "answer") return [key, maskBusinessIdentifiers(maskAnswerAttribution(value).value)];
       if (key === "question" || key === "content")
         return [key, mask(value).value];
       if (/handler|processor|담당|처리자/i.test(key))
