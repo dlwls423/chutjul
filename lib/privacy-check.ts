@@ -1,8 +1,11 @@
+import { vehicleNumberPattern } from "./vehicle-identifiers";
+
 export type SensitiveFinding = { type: string; value: string };
 export function detectResidualSensitiveInfo(text: string) {
   const findings: SensitiveFinding[] = [];
   const rules: [string, RegExp][] = [
     ["업무식별자", /\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi],
+    ["차량번호", vehicleNumberPattern()],
     [
       "휴대전화",
       /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,
@@ -26,7 +29,7 @@ export function detectResidualSensitiveInfo(text: string) {
   for (const [type, pattern] of rules)
     for (const match of text.matchAll(pattern)) {
       if (
-        /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명)\]/.test(
+        /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명|차량번호)\]/.test(
           match[0],
         )
       )

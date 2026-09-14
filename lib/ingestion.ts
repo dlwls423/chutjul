@@ -7,6 +7,7 @@ import {
 } from "./epeople-parser";
 import { hasGuideFileKeyword } from "./document-classification";
 import { detectResidualSensitiveInfo } from "./privacy-check";
+import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 
 export type JobStatus =
@@ -382,13 +383,33 @@ function verifyBrowserPrivacy(
     throw new Error("BROWSER_PRIVACY_HASH_MISMATCH");
   if (!result.outboundSafe || !result.outboundText)
     throw new Error("OUTBOUND_PRIVACY_BLOCKED:EMPTY");
-  if (detectResidualSensitiveInfo(result.outboundText).length)
-    throw new Error("OUTBOUND_PRIVACY_BLOCKED:SERVER_SECONDARY_CHECK");
   if (!result.structuredComplaint?.purpose)
     throw new Error("BROWSER_PRIVACY_INVALID");
   if (!result.maskedRecord?.question || !result.maskedRecord?.answer)
     throw new Error("BROWSER_PRIVACY_INVALID");
-  return { ...result, maskedRecord: maskRow(result.maskedRecord) };
+  // Browser masking is the first boundary. Repeat the same protection on the
+  // server so a newly added detector cannot reject an otherwise recoverable job.
+  const sanitize = (value: string) => maskPersonalInfo(value || "").masked;
+  const structuredComplaint = {
+    purpose: sanitize(result.structuredComplaint.purpose),
+    essentialFacts: result.structuredComplaint.essentialFacts.map(sanitize),
+    legalQuestions: result.structuredComplaint.legalQuestions.map(sanitize),
+    requestedAnswer: result.structuredComplaint.requestedAnswer.map(sanitize),
+    uncertainties: result.structuredComplaint.uncertainties.map(sanitize),
+  };
+  const outboundText = sanitize(result.outboundText);
+  const residual = detectResidualSensitiveInfo(outboundText);
+  if (residual.length)
+    throw new Error(
+      `OUTBOUND_PRIVACY_BLOCKED:SERVER_SECONDARY_CHECK:${[...new Set(residual.map((item) => item.type))].join(",")}`,
+    );
+  return {
+    ...result,
+    structuredComplaint,
+    outboundText,
+    maskedQuestion: sanitize(result.maskedQuestion),
+    maskedRecord: maskRow(result.maskedRecord),
+  };
 }
 function recordsFromPdfText(file: File, text: string, pageCount?: number, documentType?: string) {
   const fullText = cleanExtractedText(text);
@@ -451,6 +472,11 @@ export function maskPersonalInfo(text: string) {
   if (masked !== text)
     for (const value of text.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || [])
       findings.push({ type: "업무식별자", value });
+  const vehicleMasked = maskVehicleNumbers(masked);
+  if (vehicleMasked !== masked)
+    for (const value of masked.match(vehicleNumberPattern()) || [])
+      findings.push({ type: "차량번호", value });
+  masked = vehicleMasked;
   const rules: [string, RegExp, (v: string) => string][] = [
     [
       "휴대전화",
@@ -471,6 +497,11 @@ export function maskPersonalInfo(text: string) {
       "사업자등록번호",
       /\b\d{3}[-\s]?\d{2}[-\s]?\d{5}\b/g,
       (v) => `${v.slice(0, 3)}-**-*****`,
+    ],
+    [
+      "주소",
+      /(?:주소|소재지|거주지)\s*[:：]?\s*[^\n]{5,80}/g,
+      () => "주소: [주소]",
     ],
     [
       "카드·계좌번호",
@@ -517,9 +548,13 @@ export function maskAnswerAttribution(text: string) {
     },
   );
   const answer = head + tail;
-  const masked = maskBusinessIdentifiers(answer);
-  if (masked !== answer)
-    for (const value of answer.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || [])
+  const vehicleMasked = maskVehicleNumbers(answer);
+  if (vehicleMasked !== answer)
+    for (const value of answer.match(vehicleNumberPattern()) || [])
+      findings.push({ type: "차량번호", value });
+  const masked = maskBusinessIdentifiers(vehicleMasked);
+  if (masked !== vehicleMasked)
+    for (const value of vehicleMasked.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || [])
       findings.push({ type: "업무식별자", value });
   return { masked, findings };
 }

@@ -3,6 +3,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { PDFDocument } from "pdf-lib";
 import { cleanExtractedText, parseEpeopleComplaint } from "./epeople-parser";
 import { maskBusinessIdentifiers } from "./business-identifiers";
+import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 
 export type BrowserPrivacyPayload = {
   sourceHash: string;
@@ -44,6 +45,11 @@ function mask(text: string) {
     counts["업무식별자"] = (counts["업무식별자"] || 0) +
       (value.match(/\b(?:1AA|2AA)-\d{4}-\d{6,}\b/gi) || []).length;
   value = identifierMasked;
+  const vehicleMasked = maskVehicleNumbers(value);
+  if (vehicleMasked !== value)
+    counts["차량번호"] = (counts["차량번호"] || 0) +
+      (value.match(vehicleNumberPattern()) || []).length;
+  value = vehicleMasked;
   value = apply(
     value,
     "주민등록번호",
@@ -134,7 +140,12 @@ export function maskAnswerAttribution(text: string) {
       return `${prefix}[전화번호]`;
     },
   );
-  return { value: head + tail, counts };
+  const answer = head + tail;
+  const vehicleMasked = maskVehicleNumbers(answer);
+  if (vehicleMasked !== answer)
+    counts["차량번호"] = (counts["차량번호"] || 0) +
+      (answer.match(vehicleNumberPattern()) || []).length;
+  return { value: vehicleMasked, counts };
 }
 function redactionRanges(text: string) {
   const ranges: { start: number; end: number }[] = [];
@@ -144,6 +155,7 @@ function redactionRanges(text: string) {
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
     /\b\d{3}[-\s]?\d{2}[-\s]?\d{5}\b/g,
     /\b[12]AA-\d{4}-\d{6,}\b/gi,
+    vehicleNumberPattern(),
     /(?:성명|이름|민원인|대표자|담당자|처리자)\s*[:：]?\s*[가-힣]{2,5}/g,
     /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g,
     /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g,
@@ -526,7 +538,7 @@ export async function preparePdfInBrowser(
     piiSummary: { ...first.counts, ...second.counts },
     structuredComplaint: structured,
     localModel,
-    schemaVersion: 9,
+    schemaVersion: 10,
     maskedRecord: safeRecord,
   };
   return { privacy, maskedPdf };
