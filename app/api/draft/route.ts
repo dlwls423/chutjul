@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireProfile } from '../../../lib/auth';
+import { requireProfile, serviceRequest } from '../../../lib/auth';
 import { keywordSearch, type KeywordSearchResult } from '../../../lib/search';
 import { DRAFT_INSTRUCTIONS } from '../../../lib/draft-policy';
 import { detectResidualSensitiveInfo } from '../../../lib/privacy-check';
@@ -12,6 +12,11 @@ type Summary = { purpose:string; essentialFacts:string[]; legalQuestions:string[
 const allowedSummaryKeys = ['purpose','essentialFacts','legalQuestions','requestedAnswer','uncertainties'];
 const externalIdentifiers = /\b[12]AA-\d{4}-\d{6,}\b|https?:\/\/\S+|\b\d{4}-\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i;
 type Evidence={reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number};
+type FormatSetting={organization_name:string;closing_message:string;max_sections:number};
+async function formatSetting(department:string):Promise<FormatSetting>{
+  try{const rows=await serviceRequest<FormatSetting[]>(`/rest/v1/answer_format_settings?department=eq.${encodeURIComponent(department)}&select=organization_name,closing_message,max_sections&limit=1`);if(rows[0])return rows[0];}catch{}
+  return{organization_name:'개인정보보호위원회',closing_message:'연락주시면 친절히 안내해 드리도록 하겠습니다. 감사합니다. 끝.',max_sections:4};
+}
 function validateSummary(input: unknown): Summary {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('INVALID_INPUT');
   const value = input as Record<string,unknown>;
@@ -55,12 +60,12 @@ export async function POST(request: Request) {
       const applicationNumber = typeof body.applicationNumber === 'string' && /^1AA-\d{4}-\d{6,}$/i.test(body.applicationNumber.trim()) ? body.applicationNumber.trim() : '';
       const summary = validateSummary(body.summary);
       const query = [summary.purpose,...summary.legalQuestions,...summary.requestedAnswer].join(' ').slice(0,500);
-      const found=await keywordSearch(profile.department,query);
+      const found=await keywordSearch(profile.department,query,{evidenceOnly:true});
       const chosenCandidates=['complaint','law','guide'].flatMap(type=>found.filter(item=>item.documentType===type).slice(0,type==='law'?5:4));
       const evidence=chosenCandidates.map(safeEvidence).filter((item):item is Evidence=>Boolean(item)).map((item,index)=>({...item,reference:`E${index+1}`}));
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
       const allowedReferences=evidence.map(item=>item.reference);
-      const input = JSON.stringify({ sanitizedComplaint:summary, candidateEvidence:evidence, caution:'민원 원문은 외부에 전송되지 않았으며, 사용자가 승인한 비식별 요약과 개인정보 재검사를 통과한 후보 근거만 제공됨. 구체적인 사실관계는 담당자가 최종 확인해야 함' }, null, 2);
+      const input = JSON.stringify({ sanitizedComplaint:summary, candidateEvidence:evidence, caution:'민원 원문은 외부에 전송되지 않았으며, 사용자가 승인한 비식별 요약과 개인정보 재검사를 통과한 후보 근거만 제공됨. 각 답변 문단에는 사용한 근거 번호를 하나 이상 표시하고, 불확실한 사실은 추가 확인이 필요하다고 명시할 것.' }, null, 2);
       const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},inquirySummary:{type:'string',maxLength:240},sections:{type:'array',minItems:1,maxItems:4,items:{type:'object',additionalProperties:false,properties:{heading:{type:'string',maxLength:160},answer:{type:'string',maxLength:5000}},required:['heading','answer']}}},required:['selectedEvidence','inquirySummary','sections']};
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: profile.department, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
@@ -99,7 +104,7 @@ export async function POST(request: Request) {
     if(!Array.isArray(structured.selectedEvidence)||!structured.selectedEvidence.length||structured.selectedEvidence.some(item=>!evidenceMap.has(item.reference)))throw new Error('OUTPUT_REVIEW_FAILED');
     let inquirySummary=String(structured.inquirySummary||'').trim();
     let sections=Array.isArray(structured.sections)?structured.sections.map(section=>({heading:String(section?.heading||'').trim(),answer:String(section?.answer||'').trim()})):[];
-    if(!inquirySummary||!sections.length||sections.some(section=>!section.heading||!section.answer))throw new Error('OUTPUT_REVIEW_FAILED');
+    if(!inquirySummary||!sections.length||sections.some(section=>!section.heading||!section.answer||!/(?:\[E\d+\])/.test(section.answer)))throw new Error('OUTPUT_REVIEW_FAILED');
     const initialGeneratedText=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
     const suspect=detectResidualSensitiveInfo(initialGeneratedText);
     const sanitizeGenerated=(value:string)=>{
@@ -113,10 +118,15 @@ export async function POST(request: Request) {
     const allowed = new Set(structured.selectedEvidence.map(item=>item.reference));
     const generatedForCitation=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
     if ([...generatedForCitation.matchAll(/\[(E\d+)\]/g)].some(m=>!allowed.has(m[1]))) throw new Error('OUTPUT_REVIEW_FAILED');
-    let draft=formatComplaintAnswer({applicationNumber:String(approved.applicationNumber||''),inquirySummary,sections,department:profile.department,userName:profile.full_name,position:profile.position,officePhone:profile.office_phone});
+    const citedArticles=[...generatedForCitation.matchAll(/제\s*\d+조(?:의\s*\d+)?/g)].map(match=>match[0].replace(/\s+/g,''));
+    const evidenceText=approvedInput.candidateEvidence.filter(item=>allowed.has(item.reference)).map(item=>item.excerpt.replace(/\s+/g,'')).join('\n');
+    const unsupportedArticles=[...new Set(citedArticles.filter(article=>!evidenceText.includes(article)))];
+    const qualityChecks={format_valid:true,evidence_per_section:true,citation_scope_valid:true,legal_articles_verified:unsupportedArticles.length===0,unsupported_articles:unsupportedArticles,privacy_reviewed:true,requires_human_review:true};
+    const setting=await formatSetting(profile.department);
+    let draft=formatComplaintAnswer({applicationNumber:String(approved.applicationNumber||''),inquirySummary,sections,department:profile.department,userName:profile.full_name,position:profile.position,officePhone:profile.office_phone,organizationName:setting.organization_name,closingMessage:setting.closing_message,maxSections:setting.max_sections});
     if(suspect.length) draft+='\n\n※ 식별정보로 의심되는 표현을 [추가 검토 필요]로 치환했습니다. 문맥을 확인해 주세요.';
     const selectedEvidence=structured.selectedEvidence.map(item=>{const evidence=evidenceMap.get(item.reference)!;return{...item,title:evidence.title,documentType:evidence.documentType,recordId:evidence.recordId};});
-    return NextResponse.json({ draft, selectedEvidence }, { headers });
+    return NextResponse.json({ draft, selectedEvidence, qualityChecks }, { headers });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
     const messages: Record<string,string> = { PRIVACY_REVIEW_REQUIRED:'비식별 요약에 식별정보로 의심되는 내용이 있어 전송을 차단했습니다. 민원 내용을 확인해 주세요.', NO_VERIFIED_EVIDENCE:'개인정보 재검사를 통과한 관련 근거를 찾지 못했습니다.', REVIEW_EXPIRED:'전송자료 확인 시간이 만료되었습니다. 근거를 다시 확인해 주세요.', NOT_CONFIGURED:'AI 설정이 준비되지 않았습니다.', OUTPUT_REVIEW_FAILED:'생성 결과 검증을 통과하지 못했습니다. 담당자 검토가 필요합니다.', GENERATION_FAILED:'초안 생성에 실패했습니다. 원문은 전송되지 않았습니다.' };

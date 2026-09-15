@@ -10,6 +10,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test:regression": "node --experimental-strip-types scripts/regression-answer-template.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

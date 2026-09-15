@@ -142,6 +142,9 @@ function aiData(doc: Document) {
 function privacyData(doc: Document) {
   return (doc.metadata?.privacy_gateway || {}) as PrivacyGateway;
 }
+function retrievalData(doc: Document) {
+  return (doc.metadata?.retrieval || {}) as Record<string, unknown>;
+}
 
 export default function DocumentViewer({
   job,
@@ -325,6 +328,11 @@ export default function DocumentViewer({
                     <p>
                       {active.answer_original || "분리된 처리결과가 없습니다."}
                     </p>
+                  </section>
+                  <section className="ai-transfer">
+                    <div className="audit-heading"><div><h4>검색·AI 근거용 요약본</h4><p>유사 민원 검색과 외부 AI 근거 제공에는 아래 요약본만 사용합니다.</p></div><span className="safe">2 Track</span></div>
+                    <h4>요약 질의</h4><p>{String(retrievalData(active).question_summary||'기존 자료는 재처리 후 생성됩니다.')}</p>
+                    <h4>요약 답변</h4><p>{String(retrievalData(active).answer_summary||'기존 자료는 재처리 후 생성됩니다.')}</p>
                   </section>
                   <section className="ai-transfer">
                     <div className="audit-heading">

@@ -406,6 +406,7 @@ function Analyze({
   const [summaryApproved, setSummaryApproved] = useState(false);
   const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
   const [draft, setDraft] = useState("");
+  const [qualityChecks,setQualityChecks]=useState<Record<string,unknown>>({});
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
   const [manualEvidenceRefs, setManualEvidenceRefs] = useState<string[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
@@ -431,7 +432,7 @@ function Analyze({
       setSafeSummary(null);setEditorText(maskedQuestion);setAnalysisStatus('PDF 민원 본문을 질문에 입력했습니다 · 내용을 보완한 뒤 수락해 주세요');
     }catch(error){const message=error instanceof Error?error.message:'PDF를 처리하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('PDF 처리 중단');flash(message);}finally{setBusy(false);if(pdfInputRef.current)pdfInputRef.current.value='';}
   }
-  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);setDraft('');setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
+  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);setDraft('');setQualityChecks({});setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
   async function acceptSummary() {
     if (busy || !editorText.trim()) return;
     const maskedEditor=maskSensitiveText(editorText).value;
@@ -449,7 +450,7 @@ function Analyze({
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
       const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
-      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
+      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
   }
   async function retryDraft(){
@@ -457,7 +458,7 @@ function Analyze({
     setBusy(true);setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
-      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
+      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
   async function regenerateWithSelected(){
@@ -465,8 +466,12 @@ function Analyze({
     setBusy(true);setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature,selectedReferences:manualEvidenceRefs});
-      setDraft(result.draft);setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
+      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
     }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);}
+  }
+  async function saveDraftVersion(){
+    if(busy||!draft)return;setBusy(true);
+    try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answerText:draft,title,applicationNumber:temporaryMeta.application_number||'',summary:safeSummary||{},evidence:selectedEvidence,qualityChecks})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
   }
   return (
     <div className="content">
@@ -518,7 +523,7 @@ function Analyze({
             title="답변 초안"
             sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "비식별 요약을 수락하면 근거 선별과 초안 작성까지 자동으로 진행됩니다."}
           />
-          {draft && <div><button onClick={()=>setDraft('')}>전송자료 다시 보기</button><button className="save" onClick={() => flash("답변과 사용 근거가 저장되었습니다.")}>저장하기</button></div>}
+          {draft && <div><button onClick={()=>setDraft('')}>전송자료 다시 보기</button><button className="save" disabled={busy} onClick={saveDraftVersion}>{busy?'저장 중…':'버전 저장'}</button></div>}
         </div>
         <div className="draft-body">
           {draft ? <textarea className="editor draft-editor" aria-label="답변 초안" value={draft} onChange={event=>setDraft(event.target.value)} /> : preview ? <div className="editor transmission-review">
@@ -532,6 +537,7 @@ function Analyze({
             </h3>
             {!preview?.evidence.length && <p>분석 후 현행 법령 근거가 표시됩니다.</p>}
             {(draft?selectedEvidence:preview?.evidence||[]).map(item=><div className={draft?'selected-evidence':''} key={item.reference}><b>[{item.reference}] {item.title}</b><p>{'reason' in item?item.reason:`${item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'} · 후보 관련도 ${Math.round(item.score)}`}</p></div>)}
+            {draft&&<div className="draft-quality"><strong>자동 품질검사</strong><p>✓ 문단별 근거 표시 · ✓ 허용 근거만 인용 · ✓ 개인정보 재검사</p><p>{qualityChecks.legal_articles_verified===false?'⚠ 근거 원문에서 확인되지 않은 조문 표현이 있어 담당자 확인이 필요합니다.':'✓ 기재 조문을 선택 근거에서 확인'}</p></div>}
             {draft&&preview?.evidence.length&&<div className="manual-evidence-picker"><strong>재작성에 사용할 근거</strong><p>선택을 바꾼 뒤 아래 버튼을 누르면 선택 자료만 AI에 제공합니다.</p>{preview.evidence.map(item=><label key={item.reference}><input type="checkbox" checked={manualEvidenceRefs.includes(item.reference)} disabled={busy} onChange={event=>setManualEvidenceRefs(current=>event.target.checked?[...current,item.reference]:current.filter(reference=>reference!==item.reference))}/><span><b>[{item.reference}] {item.title}</b><small>{item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'}</small></span></label>)}<button className="analyze" disabled={busy||!manualEvidenceRefs.length} onClick={regenerateWithSelected}>{busy?'작성 중…':'선택한 근거로 다시 작성'}</button></div>}
             <label>
               이관 가능 부서

@@ -9,6 +9,7 @@ import { hasGuideFileKeyword } from "./document-classification";
 import { detectResidualSensitiveInfo } from "./privacy-check";
 import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
+import { summarizeQuestionForRetrieval, summarizeAnswerForRetrieval } from "./retrieval-summary";
 
 export type JobStatus =
   | "queued"
@@ -875,7 +876,30 @@ export async function persistRecords(
     });
   }
   if (!prepared.length) throw new Error("NO_SEARCHABLE_TEXT");
-  const rows = prepared.map((p) => ({
+  const rows = prepared.map((p) => {
+    const questionSummary = p.row.document_type === "complaint"
+      ? summarizeQuestionForRetrieval(maskPersonalInfo(p.row.question || "").masked, p.row.privacy_outbound_text || "")
+      : "";
+    const answerSummary = p.row.document_type === "complaint"
+      ? summarizeAnswerForRetrieval(maskAnswerAttribution(p.row.answer || "").masked)
+      : "";
+    const metadata = buildMetadata({
+      row: p.row,
+      file: args.file,
+      fileId: args.fileId,
+      storagePath: args.storagePath,
+      pageCount: args.pageCount,
+      rowNumber: p.rowNumber,
+      masked: p.masked,
+      findings: p.findings,
+    });
+    metadata.retrieval = {
+      question_summary: questionSummary,
+      answer_summary: answerSummary,
+      source: p.row.privacy_outbound_text ? "browser_privacy_summary" : "deterministic_summary",
+      version: 1,
+    };
+    return ({
     source_file_id: args.fileId,
     title: p.row.title || args.file.name,
     document_type: p.row.document_type || "complaint",
@@ -894,16 +918,7 @@ export async function persistRecords(
     pii_findings: p.findings.map(({ type }) => ({ type })),
     linked_pdf_name: p.row.linked_pdf_name || null,
     pdf_storage_path: p.row.linked_pdf_name ? null : args.storagePath || null,
-    metadata: buildMetadata({
-      row: p.row,
-      file: args.file,
-      fileId: args.fileId,
-      storagePath: args.storagePath,
-      pageCount: args.pageCount,
-      rowNumber: p.rowNumber,
-      masked: p.masked,
-      findings: p.findings,
-    }),
+    metadata,
     page_count: args.pageCount || null,
     status: "processing",
     application_number: p.row.application_number || null,
@@ -924,7 +939,10 @@ export async function persistRecords(
     public_status: p.row.public_status || null,
     processing_period_days: Number(p.row.processing_period_days) || null,
     notification_method: p.row.notification_method || null,
-  }));
+    question_summary: questionSummary || null,
+    answer_summary: answerSummary || null,
+    summary_version: 1,
+  })});
   let docs: { id: string }[];
   try {
     docs = await supabase(config, "/rest/v1/rag_documents", {
@@ -953,6 +971,9 @@ export async function persistRecords(
       "public_status",
       "processing_period_days",
       "notification_method",
+      "question_summary",
+      "answer_summary",
+      "summary_version",
     ];
     const compatibleRows = rows.map((row) =>
       Object.fromEntries(
@@ -983,9 +1004,10 @@ export async function persistRecords(
     ]
       .filter(Boolean)
       .join("\n");
+    const retrieval = (rows[docIndex]?.metadata?.retrieval || {}) as Record<string, unknown>;
     const searchable = removeBusinessIdentifiers(repairKnownOvermasking(
-      item.row.document_type === "complaint" && item.row.privacy_outbound_text
-        ? item.row.privacy_outbound_text
+      item.row.document_type === "complaint"
+        ? [retrieval.question_summary, retrieval.answer_summary].filter(Boolean).join("\n\n")
         : item.masked));
     const contents = [context, ...chunkText(searchable)].filter(
       (value, index, all) => value && all.indexOf(value) === index,

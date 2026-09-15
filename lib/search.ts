@@ -50,11 +50,11 @@ function snippet(source: string, terms: string[]) {
   return `${start ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`;
 }
 
-export async function keywordSearch(department: string, rawQuery: string) {
+export async function keywordSearch(department: string, rawQuery: string, options:{evidenceOnly?:boolean}={}) {
   const query = rawQuery.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 100);
   const terms = [...new Set(normalized(query).split(" ").filter(Boolean))];
   if (!terms.length) return [];
-  const cacheKey=`${department}\u0000${normalized(query)}`;
+  const cacheKey=`${department}\u0000${options.evidenceOnly?'evidence':'lookup'}\u0000${normalized(query)}`;
   const cached=searchCache.get(cacheKey);
   if(cached&&cached.expires>Date.now())return cached.value;
   // rag_documents.department is the complaint's processing department. Access
@@ -74,13 +74,18 @@ export async function keywordSearch(department: string, rawQuery: string) {
     const docChunks = byDocument.get(doc.id) || [];
     const complaintMeta = doc.metadata?.complaint as Record<string, unknown> | undefined;
     const searchMeta = doc.metadata?.search as Record<string, unknown> | undefined;
+    const retrievalMeta = doc.metadata?.retrieval as Record<string, unknown> | undefined;
+    const retrievalQuestion = typeof retrievalMeta?.question_summary === "string" ? retrievalMeta.question_summary : String(searchMeta?.summary || complaintMeta?.summary || "");
+    const retrievalAnswer = typeof retrievalMeta?.answer_summary === "string" ? retrievalMeta.answer_summary : "";
     const metadataFields = [searchMeta?.summary, complaintMeta?.summary, doc.application_number, doc.receipt_number].filter((value): value is string => typeof value === "string");
-    const fields = [doc.title, ...metadataFields, doc.question_original || "", doc.answer_original || "", ...docChunks.map((chunk) => chunk.content)];
+    const fields = options.evidenceOnly
+      ? [doc.title, retrievalQuestion, retrievalAnswer, ...docChunks.map((chunk) => chunk.content)]
+      : [doc.title, ...metadataFields, doc.question_original || "", doc.answer_original || "", ...docChunks.map((chunk) => chunk.content)];
     const haystack = normalized(fields.join("\n"));
     const matchedTerms = terms.filter((term) => haystack.includes(term));
     if (!matchedTerms.length) return null;
     const title = normalized(doc.title);
-    const question = normalized(doc.question_original || "");
+    const question = normalized(options.evidenceOnly ? retrievalQuestion : doc.question_original || "");
     const phrase = normalized(query);
     let score = matchedTerms.reduce((sum, term) => sum + occurrences(haystack, term), 0);
     score += Math.round((matchedTerms.length / terms.length) * 40);
@@ -91,8 +96,10 @@ export async function keywordSearch(department: string, rawQuery: string) {
     const best = fields.find((field) => matchedTerms.some((term) => normalized(field).includes(term))) || doc.title;
     const legal = [...new Set(docChunks.flatMap((chunk) => Array.isArray(chunk.metadata?.legal_references) ? chunk.metadata.legal_references.map(String) : []))].slice(0, 8);
     const guideMatches = doc.document_type === "guide" ? docChunks.filter((chunk) => matchedTerms.some((term) => normalized(chunk.content).includes(term))).slice(0, 12).map((chunk) => ({ pageNumber: Number(chunk.metadata?.page_number) || null, snippet: snippet(chunk.content, matchedTerms) })) : [];
-    const compactContent=doc.document_type==="complaint"?[doc.question_original,doc.answer_original].filter(Boolean).join("\n\n").slice(0,12000):"";
-    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: doc.question_original || "", answer: doc.answer_original || "", content: compactContent, score, matchedTerms, legalReferences: legal, complaintMetadata: {...(complaintMeta || {}),application_number:doc.application_number,receipt_number:doc.receipt_number}, guideMatches };
+    const resultQuestion=options.evidenceOnly?retrievalQuestion:doc.question_original||"";
+    const resultAnswer=options.evidenceOnly?retrievalAnswer:doc.answer_original||"";
+    const compactContent=doc.document_type==="complaint"?[resultQuestion,resultAnswer].filter(Boolean).join("\n\n").slice(0,12000):"";
+    return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: resultQuestion, answer: resultAnswer, content: compactContent, score, matchedTerms, legalReferences: legal, complaintMetadata: {...(complaintMeta || {}),application_number:doc.application_number,receipt_number:doc.receipt_number}, guideMatches };
   }).filter((item): item is KeywordSearchResult => item !== null);
   const result=[...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
   searchCache.set(cacheKey,{expires:Date.now()+60_000,value:result});
