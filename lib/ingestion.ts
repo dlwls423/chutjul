@@ -952,29 +952,10 @@ export async function persistRecords(
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("PGRST204"))
       throw error;
-    const optional = [
-      "application_number",
-      "receipt_number",
-      "application_at",
-      "received_at",
-      "expected_completion_at",
-      "summary",
-      "attachments",
-      "handler_masked",
-      "processor_masked",
-      "notification_at",
-      "answer_confirmed_at",
-      "related_laws",
-      "application_channel",
-      "complaint_kind",
-      "processing_result",
-      "public_status",
-      "processing_period_days",
-      "notification_method",
-      "question_summary",
-      "answer_summary",
-      "summary_version",
-    ];
+    // The complaint-detail migration is required. Only the newly introduced
+    // two-track columns are optional during the rollout, so existing metadata
+    // is never silently discarded when that latest migration is pending.
+    const optional = ["question_summary", "answer_summary", "summary_version"];
     const compatibleRows = rows.map((row) =>
       Object.fromEntries(
         Object.entries(row).filter(([key]) => !optional.includes(key)),
