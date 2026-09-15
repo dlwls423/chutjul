@@ -9,7 +9,7 @@ export type SafeComplaintSummary = {
   uncertainties: string[];
 };
 
-const PLACEHOLDER = /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명)\]/g;
+const PLACEHOLDER = /\[(?:주소|성명|전화번호|이메일|주민등록번호|사업자등록번호|계좌·카드번호|법인명|차량번호)\]/g;
 const FORBIDDEN = /\b[12]AA-\d{4}-\d{6,}\b|https?:\/\/\S+|\b\d{4}-\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/gi;
 
 function clean(value: unknown) {

@@ -7,7 +7,7 @@ import "../components/V2Privacy.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
-import { editableTextToSummary, summarizeLocally, summaryToEditableText, type SafeComplaintSummary } from "../lib/local-draft";
+import { editableTextToSummary, type SafeComplaintSummary } from "../lib/local-draft";
 import { cleanExtractedText, parseEpeopleComplaint } from "../lib/epeople-parser";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
@@ -406,7 +406,6 @@ function Analyze({
   const [summaryApproved, setSummaryApproved] = useState(false);
   const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
   const [draft, setDraft] = useState("");
-  const [localModel, setLocalModel] = useState("");
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
   const [manualEvidenceRefs, setManualEvidenceRefs] = useState<string[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
@@ -426,10 +425,10 @@ function Analyze({
       const extracted=await extractText(new Uint8Array(await file.arrayBuffer()),{mergePages:true});
       const parsed=parseEpeopleComplaint(cleanExtractedText(extracted.text),file.name);
       if(!parsed||!parsed.question)throw new Error('민원 제목과 본문을 분리하지 못했습니다. 국민신문고 민원 상세 PDF인지 확인해 주세요.');
-      setTitle(parsed.title||file.name.replace(/\.pdf$/i,''));setText(parsed.question);setMasked(true);
+      const maskedQuestion=maskSensitiveText(parsed.question).value;
+      setTitle(parsed.title||file.name.replace(/\.pdf$/i,''));setText(maskedQuestion);setMasked(true);
       setTemporaryMeta({file_name:file.name,application_number:parsed.application_number||'',receipt_number:parsed.receipt_number||'',received_at:parsed.received_at||parsed.application_at||'',handler:parsed.handler_masked||'',department:parsed.department||department});
-      const local=await summarizeLocally(`${parsed.title}\n${parsed.question}`,setAnalysisStatus);
-      setSafeSummary(local.summary);setLocalModel(local.model);setEditorText(summaryToEditableText(local.summary));setAnalysisStatus('비식별 질의가 준비되었습니다 · 내용을 보완한 뒤 수락해 주세요');
+      setSafeSummary(null);setEditorText(maskedQuestion);setAnalysisStatus('PDF 민원 본문을 질문에 입력했습니다 · 내용을 보완한 뒤 수락해 주세요');
     }catch(error){const message=error instanceof Error?error.message:'PDF를 처리하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('PDF 처리 중단');flash(message);}finally{setBusy(false);if(pdfInputRef.current)pdfInputRef.current.value='';}
   }
   function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);setDraft('');setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
@@ -478,7 +477,7 @@ function Analyze({
           <input ref={pdfInputRef} className="hidden-input" type="file" accept="application/pdf,.pdf" onChange={event=>{const file=event.target.files?.[0];if(file)void loadComplaintPdf(file);}} />
         </div>
         {sourceMode==='pdf'&&Object.keys(temporaryMeta).length>0&&<div className="temporary-intake"><div className="temporary-heading"><div><b>PDF에서 불러온 민원 정보</b><small>현재 화면에만 임시 보관되며 저장 버튼을 누르기 전에는 DB에 저장되지 않습니다.</small></div><span>임시 저장</span></div><div className="temporary-meta"><div><small>민원 제목</small><strong>{title||'—'}</strong></div><div><small>접수일시</small><strong>{temporaryMeta.received_at||'—'}</strong></div><div><small>담당자</small><strong>{temporaryMeta.handler||'—'}</strong></div><div><small>처리부서</small><strong>{temporaryMeta.department||'—'}</strong></div><div><small>신청번호</small><strong>{temporaryMeta.application_number||'—'}</strong></div><div><small>접수번호</small><strong>{temporaryMeta.receipt_number||'—'}</strong></div></div><details><summary>마스킹된 민원 본문 확인</summary><p>{maskSensitiveText(text).value}</p></details></div>}
-        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">{sourceMode==='pdf'?'비식별 질의 요약':'답변받을 질문'}</label><span>{editorText.length.toLocaleString()} / 4,000자</span></div><p>{sourceMode==='pdf'?'브라우저가 만든 요약을 검토하고 빠진 사실이나 답변 요청사항을 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={4000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);setDraft('');setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 요약이 여기에 표시됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
+        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);setDraft('');setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
         <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
       <div className="analysis-head">
