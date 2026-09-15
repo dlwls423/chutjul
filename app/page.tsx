@@ -444,7 +444,7 @@ function Analyze({
     if(busy||!acceptedSummary)return;
     setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);setDraft('');setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
-      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true});
+      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||''});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');

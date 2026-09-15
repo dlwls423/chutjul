@@ -4,6 +4,7 @@ import { keywordSearch, type KeywordSearchResult } from '../../../lib/search';
 import { DRAFT_INSTRUCTIONS } from '../../../lib/draft-policy';
 import { detectResidualSensitiveInfo } from '../../../lib/privacy-check';
 import { maskBusinessIdentifiers, repairKnownOvermasking } from '../../../lib/business-identifiers';
+import { formatComplaintAnswer, type DraftSection } from '../../../lib/answer-template';
 export const runtime = 'edge';
 const encoder = new TextEncoder();
 const headers = { 'Cache-Control': 'no-store, private' };
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
     if (rawBody.length > 30000) throw new Error('INVALID_INPUT');
     const body = JSON.parse(rawBody);
     if (body.action === 'prepare') {
-      if (body.confirmed !== true || Object.keys(body).some(k => !['action', 'summary', 'confirmed'].includes(k))) throw new Error('INVALID_INPUT');
+      if (body.confirmed !== true || Object.keys(body).some(k => !['action', 'summary', 'confirmed', 'applicationNumber'].includes(k))) throw new Error('INVALID_INPUT');
+      const applicationNumber = typeof body.applicationNumber === 'string' && /^1AA-\d{4}-\d{6,}$/i.test(body.applicationNumber.trim()) ? body.applicationNumber.trim() : '';
       const summary = validateSummary(body.summary);
       const query = [summary.purpose,...summary.legalQuestions,...summary.requestedAnswer].join(' ').slice(0,500);
       const found=await keywordSearch(profile.department,query);
@@ -59,9 +61,9 @@ export async function POST(request: Request) {
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
       const allowedReferences=evidence.map(item=>item.reference);
       const input = JSON.stringify({ sanitizedComplaint:summary, candidateEvidence:evidence, caution:'민원 원문은 외부에 전송되지 않았으며, 사용자가 승인한 비식별 요약과 개인정보 재검사를 통과한 후보 근거만 제공됨. 구체적인 사실관계는 담당자가 최종 확인해야 함' }, null, 2);
-      const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},draft:{type:'string'}},required:['selectedEvidence','draft']};
+      const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},inquirySummary:{type:'string',maxLength:240},sections:{type:'array',minItems:1,maxItems:4,items:{type:'object',additionalProperties:false,properties:{heading:{type:'string',maxLength:160},answer:{type:'string',maxLength:5000}},required:['heading','answer']}}},required:['selectedEvidence','inquirySummary','sections']};
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
-      const envelope = JSON.stringify({ user: profile.id, department: profile.department, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
+      const envelope = JSON.stringify({ user: profile.id, department: profile.department, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
       return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
@@ -91,16 +93,27 @@ export async function POST(request: Request) {
     if (!response.ok) throw new Error('GENERATION_FAILED');
     const result = await response.json();
     const outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
-    const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];draft:string};
+    const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
     const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[]};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
     if(!Array.isArray(structured.selectedEvidence)||!structured.selectedEvidence.length||structured.selectedEvidence.some(item=>!evidenceMap.has(item.reference)))throw new Error('OUTPUT_REVIEW_FAILED');
-    let draft = String(structured.draft||'');
-    const suspect = detectResidualSensitiveInfo(draft);
-    for (const finding of suspect.sort((a,b)=>b.value.length-a.value.length)) draft=draft.split(finding.value).join('[추가 검토 필요]');
-    if (!draft || detectResidualSensitiveInfo(draft).length) throw new Error('OUTPUT_REVIEW_FAILED');
+    let inquirySummary=String(structured.inquirySummary||'').trim();
+    let sections=Array.isArray(structured.sections)?structured.sections.map(section=>({heading:String(section?.heading||'').trim(),answer:String(section?.answer||'').trim()})):[];
+    if(!inquirySummary||!sections.length||sections.some(section=>!section.heading||!section.answer))throw new Error('OUTPUT_REVIEW_FAILED');
+    const initialGeneratedText=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
+    const suspect=detectResidualSensitiveInfo(initialGeneratedText);
+    const sanitizeGenerated=(value:string)=>{
+      let safe=value;
+      for(const finding of detectResidualSensitiveInfo(safe).sort((a,b)=>b.value.length-a.value.length))safe=safe.split(finding.value).join('[추가 검토 필요]');
+      return safe;
+    };
+    inquirySummary=sanitizeGenerated(inquirySummary);
+    sections=sections.map(section=>({heading:sanitizeGenerated(section.heading),answer:sanitizeGenerated(section.answer)}));
+    if(detectResidualSensitiveInfo([inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n')).length)throw new Error('OUTPUT_REVIEW_FAILED');
     const allowed = new Set(structured.selectedEvidence.map(item=>item.reference));
-    if ([...draft.matchAll(/\[(E\d+)\]/g)].some(m=>!allowed.has(m[1]))) throw new Error('OUTPUT_REVIEW_FAILED');
+    const generatedForCitation=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
+    if ([...generatedForCitation.matchAll(/\[(E\d+)\]/g)].some(m=>!allowed.has(m[1]))) throw new Error('OUTPUT_REVIEW_FAILED');
+    let draft=formatComplaintAnswer({applicationNumber:String(approved.applicationNumber||''),inquirySummary,sections,department:profile.department,userName:profile.full_name,position:profile.position,officePhone:profile.office_phone});
     if(suspect.length) draft+='\n\n※ 식별정보로 의심되는 표현을 [추가 검토 필요]로 치환했습니다. 문맥을 확인해 주세요.';
     const selectedEvidence=structured.selectedEvidence.map(item=>{const evidence=evidenceMap.get(item.reference)!;return{...item,title:evidence.title,documentType:evidence.documentType,recordId:evidence.recordId};});
     return NextResponse.json({ draft, selectedEvidence }, { headers });
