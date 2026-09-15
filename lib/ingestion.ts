@@ -10,6 +10,7 @@ import { detectResidualSensitiveInfo } from "./privacy-check";
 import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 import { summarizeQuestionForRetrieval, summarizeAnswerForRetrieval } from "./retrieval-summary";
+import { buildGuideEvidence } from "./guide-indexing";
 
 export type JobStatus =
   | "queued"
@@ -422,7 +423,7 @@ function verifyBrowserPrivacy(
     maskedRecord: maskRow(result.maskedRecord),
   };
 }
-function recordsFromPdfText(file: File, text: string, pageCount?: number, documentType?: string) {
+function recordsFromPdfText(file: File, text: string, pageCount?: number, documentType?: string, pageTexts: string[] = []) {
   const fullText = cleanExtractedText(text);
   if (documentType === "guide" || hasGuideFileKeyword(file.name))
     return {
@@ -435,6 +436,7 @@ function recordsFromPdfText(file: File, text: string, pageCount?: number, docume
           answer: "",
           linked_pdf_name: file.name,
           guide_toc: JSON.stringify(extractGuideToc(fullText)),
+          guide_pages: JSON.stringify(pageTexts.map((page) => cleanExtractedText(page))),
         },
       ],
       pageCount,
@@ -692,7 +694,7 @@ function buildMetadata(args: {
   } = args;
   const visibleRow = Object.fromEntries(
     Object.entries(row).filter(
-      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "application_number" && key !== "receipt_number",
+      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "guide_pages" && key !== "application_number" && key !== "receipt_number",
     ),
   );
   const structured = parseJsonObject(row.privacy_structured);
@@ -739,6 +741,8 @@ function buildMetadata(args: {
     guide: {
       toc: parseJsonArray(row.guide_toc),
       full_text_stored: row.document_type === "guide",
+      evidence_structure: row.document_type === "guide" ? "page_and_section" : null,
+      indexing_version: row.document_type === "guide" ? 2 : null,
     },
     complaint: {
       application_at: row.application_at || row.application_date || null,
@@ -971,6 +975,7 @@ export async function persistRecords(
     chunkIndex: number;
     content: string;
     rowNumber: number;
+    metadata?: Record<string, unknown>;
   }[] = [];
   docs.forEach((doc, i) => {
     const item = prepared[i];
@@ -985,20 +990,24 @@ export async function persistRecords(
     ]
       .filter(Boolean)
       .join("\n");
-    const retrieval = (rows[docIndex]?.metadata?.retrieval || {}) as Record<string, unknown>;
+    const retrieval = (rows[i]?.metadata?.retrieval || {}) as Record<string, unknown>;
     const searchable = removeBusinessIdentifiers(repairKnownOvermasking(
       item.row.document_type === "complaint"
         ? [retrieval.question_summary, retrieval.answer_summary].filter(Boolean).join("\n\n")
         : item.masked));
-    const contents = [context, ...chunkText(searchable)].filter(
-      (value, index, all) => value && all.indexOf(value) === index,
-    );
-    contents.forEach((content, chunkIndex) =>
+    const guideChunks = item.row.document_type === "guide"
+      ? buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc))
+      : [];
+    const contents = guideChunks.length
+      ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { page_number: chunk.pageNumber, page_end: chunk.pageEnd, section_title: chunk.sectionTitle, chunk_kind: chunk.chunkKind, keywords: chunk.keywords, legal_references: chunk.legalReferences } }))
+      : [context, ...chunkText(searchable)].filter((value, index, all) => value && all.indexOf(value) === index).map((content) => ({ content }));
+    contents.forEach((entry, chunkIndex) =>
       pending.push({
         documentId: doc.id,
         chunkIndex,
-        content,
+        content: entry.content,
         rowNumber: item.rowNumber,
+        metadata: entry.metadata,
       }),
     );
   });
@@ -1035,6 +1044,7 @@ export async function persistRecords(
           category_middle: row.category_middle || null,
           category_minor: row.category_minor || null,
           legal_references: extractLegalReferences(x.content),
+          ...(x.metadata || {}),
         },
       });
     });
@@ -1169,10 +1179,11 @@ async function runPipeline(
         };
       } else {
         const source = new Uint8Array(await file.arrayBuffer());
-        const local = await extractText(source, { mergePages: true });
-        const localText = cleanExtractedText(local.text);
+        const local = await extractText(source, { mergePages: false });
+        const pageTexts = Array.isArray(local.text) ? local.text.map(String) : [String(local.text)];
+        const localText = cleanExtractedText(pageTexts.join("\n\n"));
         if (!localText.trim()) throw new Error("LOCAL_PDF_TEXT_EMPTY");
-        parsed = recordsFromPdfText(file, localText, local.totalPages, isGuidePdf ? "guide" : documentType);
+        parsed = recordsFromPdfText(file, localText, local.totalPages, isGuidePdf ? "guide" : documentType, isGuidePdf ? pageTexts : []);
       }
     } else {
       await updateJob(config, jobId, "parsing", { progress: 30 });

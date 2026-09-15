@@ -16,7 +16,7 @@ type SearchDocument = {
 type SearchChunk = { document_id: string; content: string; metadata: Record<string, unknown> | null };
 type ScopedSource = { id: string };
 import { searchCurrentLaws } from "./legal-search";
-export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[]; complaintMetadata: Record<string, unknown>; guideMatches: { pageNumber: number | null; snippet: string }[] };
+export type KeywordSearchResult = { id: string; title: string; documentType: string; department: string | null; category: string; createdAt: string; snippet: string; question: string; answer: string; content: string; score: number; matchedTerms: string[]; legalReferences: string[]; complaintMetadata: Record<string, unknown>; guideMatches: { pageNumber: number | null; snippet: string; sectionTitle?: string | null }[] };
 type CachedSearch={expires:number;value:KeywordSearchResult[]};
 const searchCache=new Map<string,CachedSearch>();
 
@@ -95,7 +95,10 @@ export async function keywordSearch(department: string, rawQuery: string, option
     score += matchedTerms.filter((term) => title.includes(term)).length * 15;
     const best = fields.find((field) => matchedTerms.some((term) => normalized(field).includes(term))) || doc.title;
     const legal = [...new Set(docChunks.flatMap((chunk) => Array.isArray(chunk.metadata?.legal_references) ? chunk.metadata.legal_references.map(String) : []))].slice(0, 8);
-    const guideMatches = doc.document_type === "guide" ? docChunks.filter((chunk) => matchedTerms.some((term) => normalized(chunk.content).includes(term))).slice(0, 12).map((chunk) => ({ pageNumber: Number(chunk.metadata?.page_number) || null, snippet: snippet(chunk.content, matchedTerms) })) : [];
+    const guideMatches = doc.document_type === "guide" ? docChunks.filter((chunk) => matchedTerms.some((term) => normalized(chunk.content).includes(term))).sort((a,b)=>{
+      const rank=(chunk:SearchChunk)=>matchedTerms.reduce((sum,term)=>sum+occurrences(normalized(chunk.content),term),0)+(matchedTerms.some(term=>normalized(String(chunk.metadata?.section_title||"")).includes(term))?20:0)+(chunk.metadata?.chunk_kind==="guide_evidence"?5:0);
+      return rank(b)-rank(a);
+    }).slice(0, 12).map((chunk) => ({ pageNumber: Number(chunk.metadata?.page_number) || null, snippet: snippet(chunk.content, matchedTerms), sectionTitle: typeof chunk.metadata?.section_title === "string" ? chunk.metadata.section_title : null })) : [];
     const resultQuestion=options.evidenceOnly?retrievalQuestion:doc.question_original||"";
     const resultAnswer=options.evidenceOnly?retrievalAnswer:doc.answer_original||"";
     const compactContent=doc.document_type==="complaint"?[resultQuestion,resultAnswer].filter(Boolean).join("\n\n").slice(0,12000):"";

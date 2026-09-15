@@ -33,7 +33,7 @@ function validateSummary(input: unknown): Summary {
 }
 function safeEvidence(item:KeywordSearchResult,index:number):Evidence|null{
   const source=item.documentType==='complaint'?[item.question,item.answer].filter(Boolean).join('\n\n'):
-    item.documentType==='guide'?(item.guideMatches.map(match=>match.snippet).join('\n')||item.snippet):item.content;
+    item.documentType==='guide'?(item.guideMatches.map(match=>[match.sectionTitle&&`절: ${match.sectionTitle}`,match.pageNumber&&`페이지: ${match.pageNumber}`,match.snippet].filter(Boolean).join('\n')).join('\n\n')||item.snippet):item.content;
   let excerpt=maskBusinessIdentifiers(repairKnownOvermasking(String(source||item.snippet||''))).replace(/\u0000/g,'').slice(0,item.documentType==='law'?5000:3200);
   for(const finding of detectResidualSensitiveInfo(excerpt).sort((a,b)=>b.value.length-a.value.length))excerpt=excerpt.split(finding.value).join(`[${finding.type}]`);
   const safeTitle=maskBusinessIdentifiers(item.title);
