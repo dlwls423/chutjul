@@ -1029,12 +1029,15 @@ export async function persistRecords(
     batch.forEach((x, i) => {
       const docIndex = docs.findIndex((doc) => doc.id === x.documentId);
       const row = docIndex >= 0 ? prepared[docIndex].row : {};
+      const vector = vectors[i];
+      if (!Array.isArray(vector) || !vector.length || vector.some((value) => !Number.isFinite(value)))
+        throw new Error(`EMBEDDING_VECTOR_INVALID:chunk=${x.chunkIndex}`);
       vectorRows.push({
         document_id: x.documentId,
         chunk_index: x.chunkIndex,
         content: x.content,
         token_estimate: Math.ceil(x.content.length / 3),
-        embedding: vectors[i],
+        embedding: vector,
         metadata: {
           source_file_id: args.fileId,
           row_number: x.rowNumber,
@@ -1050,14 +1053,36 @@ export async function persistRecords(
       });
     });
   }
-  // A 1,536-dimensional embedding is large JSON. Keep each PostgREST body
-  // comfortably below gateway limits; oversized bodies may surface as PGRST102.
-  const vectorInsertBatchSize = 25;
-  for (let offset = 0; offset < vectorRows.length; offset += vectorInsertBatchSize)
-    await supabase(config, "/rest/v1/rag_chunks", {
-      method: "POST",
-      body: JSON.stringify(vectorRows.slice(offset, offset + vectorInsertBatchSize)),
-    });
+  // A 1,536-dimensional embedding is large JSON. Split by encoded byte size,
+  // then bisect and retry if a gateway still rejects a payload as invalid JSON.
+  const encodedSize = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const insertVectorRows = async (batch: typeof vectorRows): Promise<void> => {
+    if (!batch.length) return;
+    const bytes = encodedSize(batch);
+    if (bytes > 180_000 && batch.length > 1) {
+      const middle = Math.ceil(batch.length / 2);
+      await insertVectorRows(batch.slice(0, middle));
+      await insertVectorRows(batch.slice(middle));
+      return;
+    }
+    try {
+      await supabase(config, "/rest/v1/rag_chunks", {
+        method: "POST",
+        body: JSON.stringify(batch),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (batch.length > 1 && (/PGRST102/.test(message) || /SUPABASE_413/.test(message))) {
+        const middle = Math.ceil(batch.length / 2);
+        await insertVectorRows(batch.slice(0, middle));
+        await insertVectorRows(batch.slice(middle));
+        return;
+      }
+      throw new Error(`${message}:chunk=${batch[0].chunk_index}:payload_bytes=${bytes}`);
+    }
+  };
+  for (let offset = 0; offset < vectorRows.length; offset += 50)
+    await insertVectorRows(vectorRows.slice(offset, offset + 50));
   for (let i = 0; i < docs.length; i++)
     await supabase(config, `/rest/v1/rag_documents?id=eq.${docs[i].id}`, {
       method: "PATCH",
