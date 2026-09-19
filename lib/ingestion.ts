@@ -11,6 +11,7 @@ import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers"
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 import { summarizeQuestionForRetrieval, summarizeAnswerForRetrieval } from "./retrieval-summary";
 import { buildGuideEvidence } from "./guide-indexing";
+import { normalizeJsonRequestBody } from "./safe-json";
 
 export type JobStatus =
   | "queued"
@@ -58,7 +59,7 @@ async function supabase<T>(
 ): Promise<T> {
   const body =
     typeof init.body === "string"
-      ? init.body.replace(/\\u0000/gi, "")
+      ? normalizeJsonRequestBody(init.body)
       : init.body;
   const res = await fetch(`${config.url}${path}`, {
     ...init,
@@ -694,7 +695,7 @@ function buildMetadata(args: {
   } = args;
   const visibleRow = Object.fromEntries(
     Object.entries(row).filter(
-      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "guide_pages" && key !== "application_number" && key !== "receipt_number",
+      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "guide_pages" && key !== "application_number" && key !== "receipt_number" && !(row.document_type === "guide" && (key === "content" || key === "guide_toc")),
     ),
   );
   const structured = parseJsonObject(row.privacy_structured);
@@ -917,7 +918,7 @@ export async function persistRecords(
     answer_original: p.row.answer
       ? maskAnswerAttribution(p.row.answer).masked
       : null,
-    content_original: p.masked,
+    content_original: p.row.document_type === "guide" ? null : p.masked,
     content_masked: p.masked,
     pii_findings: p.findings.map(({ type }) => ({ type })),
     linked_pdf_name: p.row.linked_pdf_name || null,
