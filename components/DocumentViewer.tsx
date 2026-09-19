@@ -329,65 +329,70 @@ export default function DocumentViewer({
                       {active.answer_original || "분리된 처리결과가 없습니다."}
                     </p>
                   </section>
-                  <section className="ai-transfer">
-                    <div className="audit-heading"><div><h4>검색·AI 근거용 요약본</h4><p>유사 민원 검색과 외부 AI 근거 제공에는 아래 요약본만 사용합니다.</p></div><span className="safe">2 Track</span></div>
-                    <h4>요약 질의</h4><p>{String(retrievalData(active).question_summary||'기존 자료는 재처리 후 생성됩니다.')}</p>
-                    <h4>요약 답변</h4><p>{String(retrievalData(active).answer_summary||'기존 자료는 재처리 후 생성됩니다.')}</p>
-                  </section>
-                  <section className="ai-transfer">
-                    <div className="audit-heading">
+                  <section className="external-ai-panel">
+                    <div className="external-ai-heading">
                       <div>
-                        <h4>브라우저 로컬 AI 처리 및 외부 AI 전송 예정자료</h4>
+                        <span className="section-eyebrow">답변 초안 생성</span>
+                        <h4>외부 AI에 실제로 제공되는 민원 근거</h4>
                         <p>
-                          원문은 외부 AI에 보내지 않고, 브라우저 안에서 만든 최소
-                          질의만 표시합니다.
+                          이 민원이 답변 근거로 선택될 때 아래 두 항목만 외부 AI에
+                          제공됩니다.
                         </p>
                       </div>
-                      <span
-                        className={privacy.outbound_safe ? "safe" : "muted"}
-                      >
-                        {privacy.outbound_safe
-                          ? "✓ 외부 전송 안전성 검사 완료"
-                          : "로컬 처리 기록 없음"}
+                      <span className={privacy.outbound_safe ? "transfer-status safe" : "transfer-status pending"}>
+                        {privacy.outbound_safe ? "개인정보 검사 완료" : "재처리 필요"}
                       </span>
+                    </div>
+                    <div className="ai-payload-list">
+                      <div className="ai-payload-item">
+                        <div className="payload-label">
+                          <strong>질문</strong>
+                          <span className="payload-badge summary">요약본 전송</span>
+                        </div>
+                        <p>{String(retrievalData(active).question_summary || "기존 자료는 재처리 후 생성됩니다.")}</p>
+                      </div>
+                      <div className="ai-payload-item">
+                        <div className="payload-label">
+                          <strong>공식 답변</strong>
+                          <span className="payload-badge full">전문 전송</span>
+                        </div>
+                        <p>{active.answer_original || "분리된 처리결과가 없습니다."}</p>
+                      </div>
+                    </div>
+                    <div className="not-sent-box">
+                      <strong>외부 AI에 제공하지 않는 정보</strong>
+                      <p>민원 질문 원문, 신청번호·접수번호, 담당자, 연락처 및 그 밖의 업무용 메타데이터</p>
+                    </div>
+                  </section>
+
+                  <details className="privacy-process-detail">
+                    <summary>개인정보 처리·요약 과정 확인</summary>
+                    <div className="audit-heading">
+                      <div>
+                        <h4>브라우저에서 생성된 비식별 중간 결과</h4>
+                        <p>업로드 중 개인정보를 제거하고 질문 요약본을 만드는 데 사용한 기록입니다. 위의 실제 AI 근거 화면과는 구분됩니다.</p>
+                      </div>
                     </div>
                     {privacy.processed ? (
                       <>
                         <div className="transfer-meta">
                           <span>브라우저 모델: {privacy.local_model || "—"}</span>
-                          <span>
-                            탐지 개인정보:{" "}
-                            {Object.values(privacy.pii_summary || {}).reduce(
-                              (sum, value) => sum + Number(value || 0),
-                              0,
-                            )}
-                            건
-                          </span>
-                          <span>
-                            검토 상태:{" "}
-                            {privacy.review_status === "pending"
-                              ? "검토 대기"
-                              : privacy.review_status || "—"}
-                          </span>
+                          <span>탐지 개인정보: {Object.values(privacy.pii_summary || {}).reduce((sum, value) => sum + Number(value || 0), 0)}건</span>
+                          <span>검토 상태: {privacy.review_status === "pending" ? "검토 대기" : privacy.review_status || "—"}</span>
                         </div>
-                        <pre>
-                          {privacy.outbound_text ||
-                            "안전성 검사에서 차단되었습니다."}
-                        </pre>
+                        <pre>{privacy.outbound_text || "안전성 검사에서 차단되었습니다."}</pre>
                       </>
                     ) : (
-                      <p>
-                        이 문서에는 V2 개인정보 게이트웨이 처리 기록이 없습니다.
-                      </p>
+                      <p>이 문서에는 브라우저 개인정보 처리 기록이 없습니다.</p>
                     )}
-                  </section>
+                  </details>
                   <section>
                     <div className="audit-heading">
                       <div>
-                        <h4>임베딩 전송 청크</h4>
+                        <h4>검색용 임베딩 API 전송자료</h4>
                         <p>
-                          검색 벡터 생성을 위해 OpenAI Embedding API에 전송된
-                          마스킹 텍스트입니다.
+                          유사 민원 검색 벡터를 만들기 위해 별도로 전송된 요약 청크입니다.
+                          답변 초안 생성용 전송자료와는 다릅니다.
                         </p>
                       </div>
                       <span>{activeChunks.length}개</span>
