@@ -1050,10 +1050,13 @@ export async function persistRecords(
       });
     });
   }
-  for (let offset = 0; offset < vectorRows.length; offset += 200)
+  // A 1,536-dimensional embedding is large JSON. Keep each PostgREST body
+  // comfortably below gateway limits; oversized bodies may surface as PGRST102.
+  const vectorInsertBatchSize = 25;
+  for (let offset = 0; offset < vectorRows.length; offset += vectorInsertBatchSize)
     await supabase(config, "/rest/v1/rag_chunks", {
       method: "POST",
-      body: JSON.stringify(vectorRows.slice(offset, offset + 200)),
+      body: JSON.stringify(vectorRows.slice(offset, offset + vectorInsertBatchSize)),
     });
   for (let i = 0; i < docs.length; i++)
     await supabase(config, `/rest/v1/rag_documents?id=eq.${docs[i].id}`, {
