@@ -15,9 +15,49 @@ function select(value: string, maxSentences: number, maxChars: number) {
   return selected.join(" ").slice(0, maxChars).trim();
 }
 
-export function summarizeQuestionForRetrieval(question: string, browserSummary = "") {
+type StructuredQuestion = {
+  purpose?: unknown;
+  essentialFacts?: unknown;
+  legalQuestions?: unknown;
+  requestedAnswer?: unknown;
+};
+
+function compactLine(value: unknown) {
+  return removeBusinessIdentifiers(String(value || ""))
+    .replace(/^(?:핵심 사실|법적 쟁점|답변 요청사항|질의 목적)\s*[:：-]?\s*/g, "")
+    .replace(/^[\s•*-]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactRequest(value: string) {
+  const clean = value
+    .replace(/(?:인지|하는지)\s*(?:문의|질의)(?:함|합니다)?[.]?$/g, "인지 확인을 요청함.")
+    .replace(/(?:여부를?)\s*(?:문의|질의)(?:함|합니다)?[.]?$/g, "여부 확인을 요청함.")
+    .replace(/(?:알려\s*달라|답변을?\s*요청)(?:고\s*)?(?:함|합니다)?[.]?$/g, "확인을 요청함.")
+    .replace(/확인\s*요청[.]?$/g, "확인을 요청함.");
+  if (/[.?!]$/.test(clean)) return clean;
+  if (/(?:요청함|확인 필요|문의함|질의함)$/.test(clean)) return `${clean}.`;
+  return `${clean} 확인을 요청함.`;
+}
+
+function asSentence(value: string) {
+  return /[.?!]$/.test(value) ? value : `${value}.`;
+}
+
+export function summarizeQuestionForRetrieval(question: string, browserSummary = "", structured: StructuredQuestion = {}) {
+  const facts = Array.isArray(structured.essentialFacts) ? structured.essentialFacts.map(compactLine).filter(Boolean) : [];
+  const requests = Array.isArray(structured.requestedAnswer) ? structured.requestedAnswer.map(compactLine).filter(Boolean) : [];
+  const issues = Array.isArray(structured.legalQuestions) ? structured.legalQuestions.map(compactLine).filter(Boolean) : [];
+  const purpose = compactLine(structured.purpose);
+  const fact = facts[0] || purpose;
+  const request = requests[0] || issues[0];
+  const compact = [fact && asSentence(fact), request && compactRequest(request)]
+    .filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index)
+    .join(" ");
+  if (compact) return trimAtSentence(compact, 360);
   const safe = removeBusinessIdentifiers(browserSummary || question);
-  return select(safe, 8, 2400) || "질의 요약 없음";
+  return select(safe, 3, 500) || "질의 요약 없음";
 }
 
 const answerBoilerplate = /안녕하십니까|개인정보보호위원회입니다|국민신문고를 통해|검토 결과를 다음과 같이|귀하께서는.+문의|추가 설명이 필요한 경우|연락주시면|친절히 안내|감사합니다|\s끝[.]?$/;

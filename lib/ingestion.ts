@@ -882,7 +882,7 @@ export async function persistRecords(
   if (!prepared.length) throw new Error("NO_SEARCHABLE_TEXT");
   const rows = prepared.map((p) => {
     const questionSummary = p.row.document_type === "complaint"
-      ? summarizeQuestionForRetrieval(maskPersonalInfo(p.row.question || "").masked, p.row.privacy_outbound_text || "")
+      ? summarizeQuestionForRetrieval(maskPersonalInfo(p.row.question || "").masked, p.row.privacy_outbound_text || "", parseJsonObject(p.row.privacy_structured))
       : "";
     const answerSummary = p.row.document_type === "complaint"
       ? summarizeAnswerForRetrieval(maskAnswerAttribution(p.row.answer || "").masked)
@@ -901,7 +901,7 @@ export async function persistRecords(
       question_summary: questionSummary,
       answer_summary: answerSummary,
       source: p.row.privacy_outbound_text ? "browser_privacy_summary" : "deterministic_summary",
-      version: 2,
+      version: 3,
     };
     return ({
     source_file_id: args.fileId,
@@ -945,7 +945,7 @@ export async function persistRecords(
     notification_method: p.row.notification_method || null,
     question_summary: questionSummary || null,
     answer_summary: answerSummary || null,
-    summary_version: 2,
+    summary_version: 3,
   })});
   let docs: { id: string }[];
   try {
