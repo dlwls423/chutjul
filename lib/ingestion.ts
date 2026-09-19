@@ -742,7 +742,7 @@ function buildMetadata(args: {
       toc: parseJsonArray(row.guide_toc),
       full_text_stored: row.document_type === "guide",
       evidence_structure: row.document_type === "guide" ? "page_and_section" : null,
-      indexing_version: row.document_type === "guide" ? 2 : null,
+      indexing_version: row.document_type === "guide" ? 3 : null,
     },
     complaint: {
       application_at: row.application_at || row.application_date || null,
@@ -999,7 +999,7 @@ export async function persistRecords(
       ? buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc))
       : [];
     const contents = guideChunks.length
-      ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { page_number: chunk.pageNumber, page_end: chunk.pageEnd, section_title: chunk.sectionTitle, chunk_kind: chunk.chunkKind, keywords: chunk.keywords, legal_references: chunk.legalReferences } }))
+      ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { page_number: chunk.pageNumber, page_end: chunk.pageEnd, section_title: chunk.sectionTitle, section_path: chunk.sectionPath, chunk_kind: chunk.chunkKind, content_type: chunk.contentType, keywords: chunk.keywords, legal_references: chunk.legalReferences, indexing_version: 3 } }))
       : [context, ...chunkText(searchable)].filter((value, index, all) => value && all.indexOf(value) === index).map((content) => ({ content }));
     contents.forEach((entry, chunkIndex) =>
       pending.push({
