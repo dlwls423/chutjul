@@ -901,7 +901,7 @@ export async function persistRecords(
       question_summary: questionSummary,
       answer_summary: answerSummary,
       source: p.row.privacy_outbound_text ? "browser_privacy_summary" : "deterministic_summary",
-      version: 1,
+      version: 2,
     };
     return ({
     source_file_id: args.fileId,
@@ -945,7 +945,7 @@ export async function persistRecords(
     notification_method: p.row.notification_method || null,
     question_summary: questionSummary || null,
     answer_summary: answerSummary || null,
-    summary_version: 1,
+    summary_version: 2,
   })});
   let docs: { id: string }[];
   try {

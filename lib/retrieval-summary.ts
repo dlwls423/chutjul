@@ -1,4 +1,4 @@
-import { removeBusinessIdentifiers } from "./business-identifiers";
+import { removeBusinessIdentifiers } from "./business-identifiers.ts";
 
 function sentences(value: string) {
   return value
@@ -20,7 +20,38 @@ export function summarizeQuestionForRetrieval(question: string, browserSummary =
   return select(safe, 8, 2400) || "질의 요약 없음";
 }
 
+const answerBoilerplate = /안녕하십니까|개인정보보호위원회입니다|국민신문고를 통해|검토 결과를 다음과 같이|귀하께서는.+문의|추가 설명이 필요한 경우|연락주시면|친절히 안내|감사합니다|\s끝[.]?$/;
+const legalBasis = /(?:개인정보 보호법|시행령|시행규칙|고시|가이드라인|안내서|제\s*\d+\s*조|제\s*\d+\s*항|제\s*\d+\s*호)/;
+const conclusion = /(?:해당하지|해당할|적용되지|적용될|가능합니다|가능하지|허용되지|허용됩니다|필요합니다|필요하지|판단됩니다|볼 수 있습니다|보기 어렵|준수해야|확인해야)/;
+const condition = /(?:다만|단,|경우에는|경우라면|요건|전제|예외|별도로|구체적인 사실관계|추가 확인)/;
+
+function trimAtSentence(value: string, maxChars: number) {
+  if (value.length <= maxChars) return value;
+  const clipped = value.slice(0, maxChars);
+  const boundary = Math.max(clipped.lastIndexOf("다."), clipped.lastIndexOf("요."), clipped.lastIndexOf("."));
+  return `${clipped.slice(0, boundary >= maxChars * 0.6 ? boundary + 2 : maxChars).trim()}…`;
+}
+
 export function summarizeAnswerForRetrieval(answer: string) {
   const safe = removeBusinessIdentifiers(answer);
-  return select(safe, 10, 3200) || "답변 요약 없음";
+  const candidates = sentences(safe)
+    .map((text, index) => {
+      if (answerBoilerplate.test(text)) return { text, index, score: -100 };
+      let score = 0;
+      if (legalBasis.test(text)) score += 6;
+      if (conclusion.test(text)) score += 6;
+      if (condition.test(text)) score += 4;
+      if (/따라|근거|대상|범위|의무|권리/.test(text)) score += 2;
+      if (text.length > 420) score -= 2;
+      return { text, index, score };
+    })
+    .filter((item) => item.score > -100);
+  const important = candidates
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 5);
+  const selected = (important.length ? important : candidates.slice(0, 3))
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.text);
+  return trimAtSentence([...new Set(selected)].join(" "), 1200) || "답변 요약 없음";
 }
