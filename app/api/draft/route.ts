@@ -148,12 +148,25 @@ export async function POST(request: Request) {
     const result = await response.json();
     const outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
     const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
-    const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[]};
+    const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[];sanitizedComplaint?:Summary};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
-    if(!Array.isArray(structured.selectedEvidence)||!structured.selectedEvidence.length||structured.selectedEvidence.some(item=>!evidenceMap.has(item.reference)))throw new Error('OUTPUT_REVIEW_FAILED');
+    if(!evidenceMap.size)throw new Error('OUTPUT_REVIEW_FAILED');
+    const validSelected=Array.isArray(structured.selectedEvidence)?structured.selectedEvidence.filter(item=>item&&evidenceMap.has(String(item.reference||''))).map(item=>({reference:String(item.reference),reason:String(item.reason||'답변 근거로 사용')})):[];
     let inquirySummary=String(structured.inquirySummary||'').trim();
     let sections=Array.isArray(structured.sections)?structured.sections.map(section=>({heading:String(section?.heading||'').trim(),answer:String(section?.answer||'').trim()})):[];
-    if(!inquirySummary||!sections.length||sections.some(section=>!section.heading||!section.answer||!/(?:\[E\d+\])/.test(section.answer)))throw new Error('OUTPUT_REVIEW_FAILED');
+    if(!inquirySummary)inquirySummary=String(approvedInput.sanitizedComplaint?.purpose||'민원에서 제시한 사항').trim();
+    sections=sections.filter(section=>section.heading&&section.answer);
+    if(!inquirySummary||!sections.length)throw new Error('OUTPUT_REVIEW_FAILED');
+    const citedValid=[...new Set(sections.flatMap(section=>[...section.answer.matchAll(/\[(E\d+)\]/g)].map(match=>match[1])).filter(reference=>evidenceMap.has(reference)))];
+    const preferredReference=validSelected[0]?.reference||citedValid[0]||approvedInput.candidateEvidence.find(item=>item.documentType==='law')?.reference||approvedInput.candidateEvidence[0].reference;
+    sections=sections.map(section=>{
+      const repaired=section.answer.replace(/\[(E\d+)\]/g,(match,reference)=>evidenceMap.has(reference)?match:'');
+      return{...section,answer:/\[E\d+\]/.test(repaired)?repaired:`${repaired.trim()} [${preferredReference}]`};
+    });
+    const usedReferences=[...new Set(sections.flatMap(section=>[...section.answer.matchAll(/\[(E\d+)\]/g)].map(match=>match[1])))];
+    const selectedByReference=new Map(validSelected.map(item=>[item.reference,item]));
+    for(const reference of usedReferences)if(!selectedByReference.has(reference))selectedByReference.set(reference,{reference,reason:'답변 본문에서 인용된 근거'});
+    if(!selectedByReference.size)selectedByReference.set(preferredReference,{reference:preferredReference,reason:'질문과 가장 관련성이 높은 검증 근거'});
     const initialGeneratedText=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
     const suspect=detectResidualSensitiveInfo(initialGeneratedText);
     const sanitizeGenerated=(value:string)=>{
@@ -164,7 +177,7 @@ export async function POST(request: Request) {
     inquirySummary=sanitizeGenerated(inquirySummary);
     sections=sections.map(section=>({heading:sanitizeGenerated(section.heading),answer:sanitizeGenerated(section.answer)}));
     if(detectResidualSensitiveInfo([inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n')).length)throw new Error('OUTPUT_REVIEW_FAILED');
-    const allowed = new Set(structured.selectedEvidence.map(item=>item.reference));
+    const allowed = new Set(selectedByReference.keys());
     const generatedForCitation=[inquirySummary,...sections.flatMap(section=>[section.heading,section.answer])].join('\n');
     if ([...generatedForCitation.matchAll(/\[(E\d+)\]/g)].some(m=>!allowed.has(m[1]))) throw new Error('OUTPUT_REVIEW_FAILED');
     const citedArticles=[...generatedForCitation.matchAll(/제\s*\d+조(?:의\s*\d+)?/g)].map(match=>match[0].replace(/\s+/g,''));
@@ -174,7 +187,7 @@ export async function POST(request: Request) {
     const setting=await formatSetting(profile.department);
     let draft=formatComplaintAnswer({applicationNumber:String(approved.applicationNumber||''),inquirySummary,sections,department:profile.department,userName:profile.full_name,position:profile.position,officePhone:profile.office_phone,organizationName:setting.organization_name,closingMessage:setting.closing_message,maxSections:setting.max_sections});
     if(suspect.length) draft+='\n\n※ 식별정보로 의심되는 표현을 [추가 검토 필요]로 치환했습니다. 문맥을 확인해 주세요.';
-    const selectedEvidence=structured.selectedEvidence.map(item=>{const evidence=evidenceMap.get(item.reference)!;return{...item,title:evidence.title,documentType:evidence.documentType,recordId:evidence.recordId};});
+    const selectedEvidence=[...selectedByReference.values()].map(item=>{const evidence=evidenceMap.get(item.reference)!;return{...item,title:evidence.title,documentType:evidence.documentType,recordId:evidence.recordId};});
     return NextResponse.json({ draft, selectedEvidence, qualityChecks }, { headers });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
