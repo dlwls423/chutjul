@@ -72,7 +72,15 @@ async function supabase<T>(
       ...(init.headers || {}),
     },
   });
-  if (!res.ok) throw new Error(`SUPABASE_${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const responseBody = await res.text();
+    const method = String(init.method || "GET").toUpperCase();
+    const endpoint = path.split("?")[0];
+    const payloadBytes = typeof body === "string" ? new TextEncoder().encode(body).byteLength : 0;
+    throw new Error(
+      `SUPABASE_${res.status}:${method}:${endpoint}:payload_bytes=${payloadBytes}: ${responseBody}`,
+    );
+  }
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
 }
