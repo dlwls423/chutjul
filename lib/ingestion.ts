@@ -926,7 +926,11 @@ export async function persistRecords(
     answer_original: p.row.answer
       ? maskAnswerAttribution(p.row.answer).masked
       : null,
-    content_original: p.row.document_type === "guide" ? null : p.masked,
+    // The privacy-first pipeline never persists the unredacted PDF text.
+    // `content_original` is nevertheless NOT NULL in the deployed schema, so
+    // guides must store the same first-pass-masked full text in both fields.
+    // Search still uses the separately generated guide evidence chunks below.
+    content_original: p.masked,
     content_masked: p.masked,
     pii_findings: p.findings.map(({ type }) => ({ type })),
     linked_pdf_name: p.row.linked_pdf_name || null,
