@@ -11,6 +11,7 @@ import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers"
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 import { summarizeQuestionForRetrieval, summarizeAnswerForRetrieval } from "./retrieval-summary";
 import { buildGuideEvidence } from "./guide-indexing";
+import { extractGuideQnaWithAi } from "./guide-qna";
 import { normalizeJsonRequestBody } from "./safe-json";
 
 export type JobStatus =
@@ -23,6 +24,7 @@ export type JobStatus =
   | "verifying_summary"
   | "awaiting_review"
   | "parsing"
+  | "extracting_qna"
   | "masking"
   | "chunking"
   | "embedding"
@@ -1007,7 +1009,7 @@ export async function persistRecords(
     const retrieval = (rows[i]?.metadata?.retrieval || {}) as Record<string, unknown>;
     const searchable = removeBusinessIdentifiers(repairKnownOvermasking(
       ["complaint", "qna"].includes(item.row.document_type)
-        ? [retrieval.question_summary, retrieval.answer_summary].filter(Boolean).join("\n\n")
+        ? [retrieval.question_summary, item.row.document_type === "qna" ? maskAnswerAttribution(item.row.answer || "").masked : retrieval.answer_summary].filter(Boolean).join("\n\n")
         : item.masked));
     const guideChunks = item.row.document_type === "guide"
       ? buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc))
@@ -1261,6 +1263,7 @@ async function runPipeline(
     await updateJob(config, jobId, "uploading", { progress: 18 });
     const storagePath = await storeOriginal(config, file, fileId, isComplaintPdf);
     let parsed: { records: Row[]; pageCount?: number; rawText: string };
+    let extractedPageTexts: string[] = [];
     let piiCount = 0;
     if (file.name.toLowerCase().endsWith(".pdf")) {
       await updateJob(config, jobId, "extracting_local", { progress: 30 });
@@ -1273,16 +1276,46 @@ async function runPipeline(
       } else {
         const source = new Uint8Array(await file.arrayBuffer());
         const local = await extractText(source, { mergePages: false });
-        const pageTexts = Array.isArray(local.text) ? local.text.map(String) : [String(local.text)];
-        const localText = cleanExtractedText(pageTexts.join("\n\n"));
+        extractedPageTexts = Array.isArray(local.text) ? local.text.map(String) : [String(local.text)];
+        const localText = cleanExtractedText(extractedPageTexts.join("\n\n"));
         if (!localText.trim()) throw new Error("LOCAL_PDF_TEXT_EMPTY");
-        parsed = recordsFromPdfText(file, localText, local.totalPages, isGuidePdf ? "guide" : documentType, isGuidePdf ? pageTexts : []);
+        parsed = recordsFromPdfText(file, localText, local.totalPages, isGuidePdf ? "guide" : documentType, isGuidePdf ? extractedPageTexts : []);
       }
     } else {
       await updateJob(config, jobId, "parsing", { progress: 30 });
       parsed = await parseFile(file);
     }
     if (isGuidePdf) {
+      await updateJob(config, jobId, "extracting_qna", { progress: 48 });
+      const guideTitle = file.name.replace(/\.pdf$/i, "");
+      let qnaPairs = [];
+      try {
+        qnaPairs = await extractGuideQnaWithAi({
+          title: guideTitle,
+          sourcePages: extractedPageTexts,
+          apiKey: config.openaiKey,
+          model: process.env.OPENAI_GUIDE_QNA_MODEL || process.env.OPENAI_DRAFT_MODEL || "gpt-4.1-mini",
+        });
+      } catch {
+        // Q&A 보조 추출 장애가 안내서 본문 저장까지 막아서는 안 된다.
+        qnaPairs = [];
+      }
+      parsed.records.push(...qnaPairs.map((item, index) => ({
+        title: `[안내서 Q&A ${index + 1} · ${item.pageNumber}쪽] ${item.question}`.slice(0, 240),
+        document_type: "qna",
+        question: item.question,
+        answer: item.answer,
+        content: "",
+        summary: item.question,
+        category_major: "안내서 Q&A",
+        source_guide_title: guideTitle,
+        source_page: String(item.pageNumber),
+        source_heading: item.heading,
+        extraction_confidence: item.confidence.toFixed(2),
+        extraction_method: "semantic_page_review_v1",
+        linked_pdf_name: file.name,
+        related_laws: JSON.stringify(extractLegalReferences(`${item.question}\n${item.answer}`)),
+      })));
       await updateJob(config, jobId, "masking", {
         progress: 55,
         total_records: parsed.records.length,

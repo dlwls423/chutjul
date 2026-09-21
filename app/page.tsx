@@ -1214,6 +1214,7 @@ function statusLabel(v: string) {
         verifying_summary: "외부 전송자료 재검사",
         awaiting_review: "관리자 검토 대기",
         parsing: "Excel 텍스트 추출",
+        extracting_qna: "안내서 Q&A 의미 분석",
         masking: "텍스트 개인정보 마스킹",
         chunking: "안전한 검색 단위 분할",
         embedding: "임베딩 생성",
