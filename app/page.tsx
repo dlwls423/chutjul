@@ -396,6 +396,7 @@ function Analyze({
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [editorText, setEditorText] = useState("");
+  const [answerDirection,setAnswerDirection]=useState("");
   const [sourceMode, setSourceMode] = useState<"direct"|"pdf">("direct");
   const [temporaryMeta, setTemporaryMeta] = useState<Record<string,string>>({});
   const pdfInputRef=useRef<HTMLInputElement>(null);
@@ -406,10 +407,21 @@ function Analyze({
   const [summaryApproved, setSummaryApproved] = useState(false);
   const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
   const [draft, setDraft] = useState("");
+  const [visibleDraft,setVisibleDraft]=useState("");
+  const [draftTyping,setDraftTyping]=useState(false);
+  const typingTimerRef=useRef<ReturnType<typeof setInterval>|null>(null);
   const [qualityChecks,setQualityChecks]=useState<Record<string,unknown>>({});
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
   const [manualEvidenceRefs, setManualEvidenceRefs] = useState<string[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
+  useEffect(()=>()=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);},[]);
+  function clearDraft(){if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraft('');setVisibleDraft('');setDraftTyping(false);}
+  function revealDraft(value:string){
+    if(typingTimerRef.current)clearInterval(typingTimerRef.current);
+    setDraft(value);setVisibleDraft('');setDraftTyping(true);
+    let index=0;
+    typingTimerRef.current=setInterval(()=>{index=Math.min(value.length,index+Math.max(8,Math.ceil(value.length/110)));setVisibleDraft(value.slice(0,index));if(index>=value.length){if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraftTyping(false);}},18);
+  }
   async function postDraft(body: unknown) {
     const response=await fetch('/api/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
     const payload=await response.json();
@@ -419,7 +431,7 @@ function Analyze({
   async function loadComplaintPdf(file:File){
     if(busy)return;
     setBusy(true);
-    setAnalysisError("");setPreview(null);setDraft("");setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setSourceMode('pdf');setAnalysisStatus('기기에서 PDF 내용을 읽고 있습니다');
+    setAnalysisError("");setPreview(null);clearDraft();setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setSourceMode('pdf');setAnalysisStatus('기기에서 PDF 내용을 읽고 있습니다');
     try{
       if(file.size>15*1024*1024)throw new Error('15MB 이하 PDF를 사용해 주세요.');
       const {extractText}=await import('unpdf');
@@ -432,7 +444,7 @@ function Analyze({
       setSafeSummary(null);setEditorText(maskedQuestion);setAnalysisStatus('PDF 민원 본문을 질문에 입력했습니다 · 내용을 보완한 뒤 수락해 주세요');
     }catch(error){const message=error instanceof Error?error.message:'PDF를 처리하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('PDF 처리 중단');flash(message);}finally{setBusy(false);if(pdfInputRef.current)pdfInputRef.current.value='';}
   }
-  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);setDraft('');setQualityChecks({});setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
+  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setAnswerDirection('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);clearDraft();setQualityChecks({});setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
   async function acceptSummary() {
     if (busy || !editorText.trim()) return;
     const maskedEditor=maskSensitiveText(editorText).value;
@@ -443,14 +455,16 @@ function Analyze({
   }
   async function findEvidence(acceptedSummary=safeSummary){
     if(busy||!acceptedSummary)return;
-    setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);setDraft('');setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
+    const maskedDirection=maskSensitiveText(answerDirection).value;
+    if(maskedDirection!==answerDirection){setAnswerDirection(maskedDirection);setSummaryApproved(false);setAnalysisStatus('답변 방향성에서 개인정보를 마스킹했습니다 · 다시 확인해 주세요');flash('답변 방향성에서 개인정보로 의심되는 내용을 마스킹했습니다. 확인 후 다시 수락해 주세요.');return;}
+    setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);clearDraft();setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
-      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||''});
+      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||'',answerDirection:answerDirection.trim()});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
       const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
-      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
+      revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
   }
   async function retryDraft(){
@@ -458,7 +472,7 @@ function Analyze({
     setBusy(true);setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
-      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
+      revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
   }
   async function regenerateWithSelected(){
@@ -466,7 +480,7 @@ function Analyze({
     setBusy(true);setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature,selectedReferences:manualEvidenceRefs});
-      setDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
+      revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
     }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);}
   }
   async function saveDraftVersion(){
@@ -482,7 +496,8 @@ function Analyze({
           <input ref={pdfInputRef} className="hidden-input" type="file" accept="application/pdf,.pdf" onChange={event=>{const file=event.target.files?.[0];if(file)void loadComplaintPdf(file);}} />
         </div>
         {sourceMode==='pdf'&&Object.keys(temporaryMeta).length>0&&<div className="temporary-intake"><div className="temporary-heading"><div><b>PDF에서 불러온 민원 정보</b><small>현재 화면에만 임시 보관되며 저장 버튼을 누르기 전에는 DB에 저장되지 않습니다.</small></div><span>임시 저장</span></div><div className="temporary-meta"><div><small>민원 제목</small><strong>{title||'—'}</strong></div><div><small>접수일시</small><strong>{temporaryMeta.received_at||'—'}</strong></div><div><small>담당자</small><strong>{temporaryMeta.handler||'—'}</strong></div><div><small>처리부서</small><strong>{temporaryMeta.department||'—'}</strong></div><div><small>신청번호</small><strong>{temporaryMeta.application_number||'—'}</strong></div><div><small>접수번호</small><strong>{temporaryMeta.receipt_number||'—'}</strong></div></div><details><summary>마스킹된 민원 본문 확인</summary><p>{maskSensitiveText(text).value}</p></details></div>}
-        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);setDraft('');setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
+        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);clearDraft();setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
+        <div className="answer-direction"><div className="question-editor-head"><label htmlFor="answer-direction">답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>강조할 판단 기준, 설명 순서나 문체를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id="answer-direction" value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
         <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
       <div className="analysis-head">
@@ -523,10 +538,10 @@ function Analyze({
             title="답변 초안"
             sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "비식별 요약을 수락하면 근거 선별과 초안 작성까지 자동으로 진행됩니다."}
           />
-          {draft && <div><button onClick={()=>setDraft('')}>전송자료 다시 보기</button><button className="save" disabled={busy} onClick={saveDraftVersion}>{busy?'저장 중…':'버전 저장'}</button></div>}
+          {draft && <div>{draftTyping&&<span className="typing-status" role="status">초안 작성 중<span aria-hidden="true">•••</span></span>}<button onClick={clearDraft}>전송자료 다시 보기</button><button className="save" disabled={busy||draftTyping} onClick={saveDraftVersion}>{busy?'저장 중…':'버전 저장'}</button></div>}
         </div>
         <div className="draft-body">
-          {draft ? <textarea className="editor draft-editor" aria-label="답변 초안" value={draft} onChange={event=>setDraft(event.target.value)} /> : preview ? <div className="editor transmission-review">
+          {draft ? <textarea className={`editor draft-editor${draftTyping?' is-typing':''}`} aria-label="답변 초안" value={visibleDraft} onChange={event=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraftTyping(false);setDraft(event.target.value);setVisibleDraft(event.target.value);}} /> : preview ? <div className="editor transmission-review">
             <div className="review-heading"><b>승인된 비식별 자료</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
             <details open><summary>실제 OpenAI 전송자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
             <p>처리가 중단된 경우에만 아래 버튼으로 이어서 진행할 수 있습니다.</p><button className="analyze" disabled={busy} onClick={retryDraft}>{busy?analysisStatus:'초안 작성 다시 시도'}</button>
