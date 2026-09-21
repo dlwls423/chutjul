@@ -57,7 +57,7 @@ function selectEvidenceWithinBudget(items:Evidence[]){
     if(size>remaining)return;
     selected.push(fitted);used.add(item.recordId);remaining-=size;
   };
-  for(const type of ['law','guide','complaint'])add(items.filter(item=>item.documentType===type).sort((a,b)=>b.score-a.score)[0]);
+  for(const type of ['law','guide','qna','complaint'])add(items.filter(item=>item.documentType===type).sort((a,b)=>b.score-a.score)[0]);
   for(const item of [...items].sort((a,b)=>b.score-a.score))add(item);
   return selected.map((item,index)=>({...item,reference:`E${index+1}`}));
 }
@@ -89,9 +89,9 @@ function validateAnswerDirection(input: unknown) {
   return value;
 }
 function safeEvidence(item:KeywordSearchResult,index:number):Evidence|null{
-  const source=item.documentType==='complaint'?complaintEvidencePayload(item.question,item.answer):
+  const source=['complaint','qna'].includes(item.documentType)?complaintEvidencePayload(item.question,item.answer):
     item.documentType==='guide'?(item.guideMatches.map(match=>[match.sectionTitle&&`절: ${match.sectionTitle}`,match.pageNumber&&`페이지: ${match.pageNumber}`,match.snippet].filter(Boolean).join('\n')).join('\n\n')||item.snippet):item.content;
-  const excerptLimit=item.documentType==='complaint'?2600:item.documentType==='law'?2200:2400;
+  const excerptLimit=['complaint','qna'].includes(item.documentType)?2600:item.documentType==='law'?2200:2400;
   let excerpt=focusedExcerpt(maskBusinessIdentifiers(repairKnownOvermasking(String(source||item.snippet||''))),item.matchedTerms,excerptLimit);
   for(const finding of detectResidualSensitiveInfo(excerpt).sort((a,b)=>b.value.length-a.value.length))excerpt=excerpt.split(finding.value).join(`[${finding.type}]`);
   const safeTitle=maskBusinessIdentifiers(item.title);
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       const answerDirection=validateAnswerDirection(body.answerDirection);
       const query = [summary.purpose,...summary.legalQuestions,...summary.requestedAnswer].join(' ').slice(0,500);
       const found=await keywordSearch(profile.department,query,{evidenceOnly:true});
-      const chosenCandidates=['complaint','law','guide'].flatMap(type=>found.filter(item=>item.documentType===type).slice(0,type==='law'?5:4));
+      const chosenCandidates=['complaint','qna','law','guide'].flatMap(type=>found.filter(item=>item.documentType===type).slice(0,type==='law'?5:4));
       const evidence=selectEvidenceWithinBudget(chosenCandidates.map(safeEvidence).filter((item):item is Evidence=>Boolean(item)));
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
       const allowedReferences=evidence.map(item=>item.reference);

@@ -890,10 +890,11 @@ export async function persistRecords(
   }
   if (!prepared.length) throw new Error("NO_SEARCHABLE_TEXT");
   const rows = prepared.map((p) => {
-    const questionSummary = p.row.document_type === "complaint"
+    const isQuestionAnswer = ["complaint", "qna"].includes(p.row.document_type);
+    const questionSummary = isQuestionAnswer
       ? summarizeQuestionForRetrieval(maskPersonalInfo(p.row.question || "").masked, p.row.privacy_outbound_text || "", parseJsonObject(p.row.privacy_structured))
       : "";
-    const answerSummary = p.row.document_type === "complaint"
+    const answerSummary = isQuestionAnswer
       ? summarizeAnswerForRetrieval(maskAnswerAttribution(p.row.answer || "").masked)
       : "";
     const metadata = buildMetadata({
@@ -1005,7 +1006,7 @@ export async function persistRecords(
       .join("\n");
     const retrieval = (rows[i]?.metadata?.retrieval || {}) as Record<string, unknown>;
     const searchable = removeBusinessIdentifiers(repairKnownOvermasking(
-      item.row.document_type === "complaint"
+      ["complaint", "qna"].includes(item.row.document_type)
         ? [retrieval.question_summary, retrieval.answer_summary].filter(Boolean).join("\n\n")
         : item.masked));
     const guideChunks = item.row.document_type === "guide"
@@ -1143,6 +1144,57 @@ export async function processUpload(
     browserPrivacy,
     hash,
   );
+}
+
+export async function processQnaPair(input: {
+  title: string;
+  question: string;
+  answer: string;
+  category?: string;
+  department: string;
+}) {
+  const config = getConfig();
+  const title = input.title.trim();
+  const question = input.question.trim();
+  const answer = input.answer.trim();
+  if (title.length < 2 || question.length < 10 || answer.length < 10)
+    throw new Error("QNA_FIELDS_REQUIRED");
+  const payload = JSON.stringify({ title, question, answer, category: input.category || "" });
+  const file = new File([payload], `Q&A_${title.slice(0, 40).replace(/[\\/:*?\"<>|]/g, "_")}.json`, {
+    type: "application/json",
+  });
+  const hash = await sha256(file);
+  const { jobId, fileId } = await createJob(config, file, hash, "qna", input.department);
+  try {
+    await updateJob(config, jobId, "checking", { progress: 15 });
+    await updateJob(config, jobId, "masking", { progress: 40, total_records: 1 });
+    const result = await persistRecords(config, {
+      jobId,
+      fileId,
+      file,
+      department: input.department,
+      records: [{
+        title,
+        question,
+        answer,
+        content: "",
+        document_type: "qna",
+        category_major: input.category?.trim() || "Q&A",
+      }],
+    });
+    await updateJob(config, jobId, "completed", {
+      progress: 100,
+      document_count: result.documentCount,
+      chunk_count: result.chunkCount,
+      pii_count: result.piiCount,
+      completed_at: new Date().toISOString(),
+    });
+    return { jobId, ...result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Q&A 저장 중 오류가 발생했습니다.";
+    await updateJob(config, jobId, "failed", { progress: 0, error_message: message });
+    throw error;
+  }
 }
 export async function retryUpload(
   file: File,

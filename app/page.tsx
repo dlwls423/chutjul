@@ -527,7 +527,7 @@ function Analyze({
         </div>
       </div>
       <div className="result-grid">
-        <ResultCases open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "complaint")} />
+        <ResultCases open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "complaint" || item.documentType === "qna")} />
         <ResultLaws open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
       {analysisError && <p className="upload-error">{analysisError}</p>}
@@ -551,9 +551,9 @@ function Analyze({
               {draft ? "AI가 선택한 근거" : "AI 선택 후보"} <span>{draft ? selectedEvidence.length : preview?.evidence.length || 0}</span>
             </h3>
             {!preview?.evidence.length && <p>분석 후 현행 법령 근거가 표시됩니다.</p>}
-            {(draft?selectedEvidence:preview?.evidence||[]).map(item=><div className={draft?'selected-evidence':''} key={item.reference}><b>[{item.reference}] {item.title}</b><p>{'reason' in item?item.reason:`${item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'} · 후보 관련도 ${Math.round(item.score)}`}</p></div>)}
+            {(draft?selectedEvidence:preview?.evidence||[]).map(item=><div className={draft?'selected-evidence':''} key={item.reference}><b>[{item.reference}] {item.title}</b><p>{'reason' in item?item.reason:`${item.documentType==='complaint'?'유사 민원':item.documentType==='qna'?'Q&A':item.documentType==='guide'?'안내서':'현행 법령'} · 후보 관련도 ${Math.round(item.score)}`}</p></div>)}
             {draft&&<div className="draft-quality"><strong>자동 품질검사</strong><p>✓ 문단별 근거 표시 · ✓ 허용 근거만 인용 · ✓ 개인정보 재검사</p><p>{qualityChecks.legal_articles_verified===false?'⚠ 근거 원문에서 확인되지 않은 조문 표현이 있어 담당자 확인이 필요합니다.':'✓ 기재 조문을 선택 근거에서 확인'}</p></div>}
-            {draft&&preview?.evidence.length&&<div className="manual-evidence-picker"><strong>재작성에 사용할 근거</strong><p>선택을 바꾼 뒤 아래 버튼을 누르면 선택 자료만 AI에 제공합니다.</p>{preview.evidence.map(item=><label key={item.reference}><input type="checkbox" checked={manualEvidenceRefs.includes(item.reference)} disabled={busy} onChange={event=>setManualEvidenceRefs(current=>event.target.checked?[...current,item.reference]:current.filter(reference=>reference!==item.reference))}/><span><b>[{item.reference}] {item.title}</b><small>{item.documentType==='complaint'?'유사 민원':item.documentType==='guide'?'안내서':'현행 법령'}</small></span></label>)}<button className="analyze" disabled={busy||!manualEvidenceRefs.length} onClick={regenerateWithSelected}>{busy?'작성 중…':'선택한 근거로 다시 작성'}</button></div>}
+            {draft&&preview?.evidence.length&&<div className="manual-evidence-picker"><strong>재작성에 사용할 근거</strong><p>선택을 바꾼 뒤 아래 버튼을 누르면 선택 자료만 AI에 제공합니다.</p>{preview.evidence.map(item=><label key={item.reference}><input type="checkbox" checked={manualEvidenceRefs.includes(item.reference)} disabled={busy} onChange={event=>setManualEvidenceRefs(current=>event.target.checked?[...current,item.reference]:current.filter(reference=>reference!==item.reference))}/><span><b>[{item.reference}] {item.title}</b><small>{item.documentType==='complaint'?'유사 민원':item.documentType==='qna'?'Q&A':item.documentType==='guide'?'안내서':'현행 법령'}</small></span></label>)}<button className="analyze" disabled={busy||!manualEvidenceRefs.length} onClick={regenerateWithSelected}>{busy?'작성 중…':'선택한 근거로 다시 작성'}</button></div>}
             <label>
               이관 가능 부서
               <select defaultValue={department}><option>{department}</option></select>
@@ -582,7 +582,7 @@ function AnalysisResultDetail({item,query,close}:{item:SearchItem;query:string;c
   return <div className="search-detail-backdrop" onMouseDown={close}><section className="search-detail" onMouseDown={event=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="분석 근거 상세">
     <header><div><span>{item.documentType==='complaint'?'유사민원':item.documentType==='guide'?'안내서':'현행 법령'} {item.evidenceReference&&`후보 ${item.evidenceReference}`}</span><h3>{item.title}</h3><p>{item.department} · {item.createdAt?.slice(0,10)}</p></div><button aria-label="닫기" onClick={close}>×</button></header>
     <div className="search-detail-body">
-      {item.documentType==='complaint'&&<><ComplaintSearchMetadata item={item}/><section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>민원 질의</h4><small>저장된 비식별 질의</small></div></div><p>{item.question||'질의 내용이 없습니다.'}</p></section><section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>답변 내용</h4><small>처리부서의 답변</small></div></div><p>{item.answer||'답변 내용이 없습니다.'}</p></section></>}
+      {(item.documentType==='complaint'||item.documentType==='qna')&&<>{item.documentType==='complaint'&&<ComplaintSearchMetadata item={item}/>}<section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>{item.documentType==='qna'?'질문':'민원 질의'}</h4><small>저장된 비식별 질의</small></div></div><p>{item.question||'질의 내용이 없습니다.'}</p></section><section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>{item.documentType==='qna'?'공식 답변':'답변 내용'}</h4><small>검토가 완료된 답변</small></div></div><p>{item.answer||'답변 내용이 없습니다.'}</p></section></>}
       {item.documentType==='law'&&<section><h4>현행 법령 내용</h4><p>{item.content||item.snippet}</p>{String(item.complaintMetadata.source_url||'').startsWith('https://www.law.go.kr/')&&<a href={String(item.complaintMetadata.source_url)} target="_blank" rel="noreferrer">국가법령정보센터 원문 ↗</a>}</section>}
       {item.documentType==='guide'&&<section className="guide-search-pages"><h4>관련 문장과 원본 페이지</h4>{loading?<p>안내서 페이지를 불러오고 있습니다…</p>:pdfData?<div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.map((match,index)=><button className={activePage===match.pageNumber?'on':''} key={`${match.pageNumber}-${index}`} onClick={()=>setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span>{match.snippet}</span></button>)}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><a href={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><iframe key={`${item.id}-${activePage}`} title={`${item.title} ${activePage}쪽`} src={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`}/></div></div>:<p>원본 PDF 페이지 정보를 불러오지 못했습니다.</p>}</section>}
     </div>
@@ -658,14 +658,15 @@ function Search({
     } catch (cause) { setError(cause instanceof Error ? cause.message : "검색 중 오류가 발생했습니다."); }
     finally { setLoading(false); }
   }
-  const typeForTab = (item: SearchItem) => tab === "전체" || (tab === "유사민원" && item.documentType === "complaint") || (tab === "법령" && item.documentType === "law") || (tab === "안내서" && item.documentType === "guide");
+  const typeForTab = (item: SearchItem) => tab === "전체" || (tab === "유사민원" && item.documentType === "complaint") || (tab === "Q&A" && item.documentType === "qna") || (tab === "법령" && item.documentType === "law") || (tab === "안내서" && item.documentType === "guide");
   const filtered = results.filter((item) => typeForTab(item) && (category === "전체" || item.category === category) && (legal === "전체 법령" || item.legalReferences.includes(legal)));
   const sorted = [...filtered].sort((a, b) => sort === "최신순" ? b.createdAt.localeCompare(a.createdAt) : b.score - a.score || b.createdAt.localeCompare(a.createdAt));
-  const counts = { 전체: results.length, 유사민원: results.filter((x) => x.documentType === "complaint").length, 법령: results.filter((x) => x.documentType === "law").length, 안내서: results.filter((x) => x.documentType === "guide").length };
+  const counts = { 전체: results.length, 유사민원: results.filter((x) => x.documentType === "complaint").length, "Q&A": results.filter((x) => x.documentType === "qna").length, 법령: results.filter((x) => x.documentType === "law").length, 안내서: results.filter((x) => x.documentType === "guide").length };
   const categories = [...new Set(results.map((x) => x.category).filter(Boolean))] as string[];
   const laws = [...new Set(results.flatMap((x) => x.legalReferences))];
   const groupedResults = {
     complaint: sorted.filter((item) => item.documentType === "complaint"),
+    qna: sorted.filter((item) => item.documentType === "qna"),
     law: sorted.filter((item) => item.documentType === "law"),
     guide: sorted.filter((item) => item.documentType === "guide"),
   };
@@ -683,8 +684,8 @@ function Search({
     finally { setPdfLoading(false); }
   }
   function resultCard(item: SearchItem) {
-    const kind = item.documentType === "complaint" ? "민원" : item.documentType === "law" ? "법령" : "안내서";
-    const complaintPreview = item.documentType === "complaint" ? item.question.replace(/\s+/g, " ").trim().slice(0, 240) : "";
+    const kind = item.documentType === "complaint" ? "민원" : item.documentType === "qna" ? "Q&A" : item.documentType === "law" ? "법령" : "안내서";
+    const complaintPreview = ["complaint","qna"].includes(item.documentType) ? item.question.replace(/\s+/g, " ").trim().slice(0, 240) : "";
     return <article key={item.id}>
       <div className="result-icon">{kind.slice(0, 1)}</div>
       <div>
@@ -755,7 +756,7 @@ function Search({
         <div className="search-summary">
           <div>
             <h3>{searchedQuery ? `“${searchedQuery}” 검색 결과` : "통합 검색"}</h3>
-            <p>{searchedQuery ? `총 ${filtered.length}건의 일치 자료를 찾았습니다.` : `${department}에 저장된 민원·법령·안내서를 검색합니다.`}</p>
+            <p>{searchedQuery ? `총 ${filtered.length}건의 일치 자료를 찾았습니다.` : `${department}에 저장된 민원·Q&A·법령·안내서를 검색합니다.`}</p>
           </div>
           <select value={sort} onChange={(e) => setSort(e.target.value)}>
             <option>관련도순</option>
@@ -763,7 +764,7 @@ function Search({
           </select>
         </div>
         <div className="tabs">
-          {(["전체", "유사민원", "법령", "안내서"] as const).map((name) => (
+          {(["전체", "유사민원", "Q&A", "법령", "안내서"] as const).map((name) => (
             <button
               className={tab === name ? "on" : ""}
               onClick={() => { setTab(name); setVisibleCount(20); }}
@@ -778,7 +779,7 @@ function Search({
         {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
         {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 단어가 제목·민원요지·질의·답변·본문에 포함된 자료를 찾아드립니다.</span></div>}
         {tab === "전체" && searchedQuery && !loading && !error && <div className="search-wide-board">
-          {([['complaint', '민원'], ['law', '법령'], ['guide', '안내서']] as const).map(([type, label]) => <section className={`search-result-column type-${type}`} key={type}>
+          {([['complaint', '민원'], ['qna', 'Q&A'], ['law', '법령'], ['guide', '안내서']] as const).map(([type, label]) => <section className={`search-result-column type-${type}`} key={type}>
             <header><div><span>{label.slice(0, 1)}</span><h4>{label}</h4></div><b>{groupedResults[type].length}건</b></header>
             <div className="search-results">{groupedResults[type].slice(0, 6).map(resultCard)}</div>
             {!groupedResults[type].length && <p className="column-empty">일치하는 {label} 자료가 없습니다.</p>}
@@ -792,11 +793,11 @@ function Search({
       </div>
       {selected && <div className="search-detail-backdrop" onMouseDown={() => setSelected(null)}>
         <section className="search-detail" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="검색 결과 상세">
-          <header><div><span>{selected.documentType === "complaint" ? "유사민원" : selected.documentType === "law" ? "법령" : "안내서"}</span><h3><Highlighted text={selected.title} terms={selected.matchedTerms} /></h3><p>{selected.department} · {selected.createdAt?.slice(0, 10)}</p></div><button aria-label="닫기" onClick={() => setSelected(null)}>×</button></header>
+          <header><div><span>{selected.documentType === "complaint" ? "유사민원" : selected.documentType === "qna" ? "Q&A" : selected.documentType === "law" ? "법령" : "안내서"}</span><h3><Highlighted text={selected.title} terms={selected.matchedTerms} /></h3><p>{selected.department} · {selected.createdAt?.slice(0, 10)}</p></div><button aria-label="닫기" onClick={() => setSelected(null)}>×</button></header>
           <div className="search-detail-body">
             {selected.documentType === "complaint" && <ComplaintSearchMetadata item={selected} />}
-            {selected.question && <section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>민원 질의</h4><small>민원인이 요청한 내용</small></div></div><p><Highlighted text={selected.question} terms={selected.matchedTerms} /></p></section>}
-            {selected.answer && <section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>답변 내용</h4><small>처리부서의 최종 답변</small></div></div><p><Highlighted text={selected.answer} terms={selected.matchedTerms} /></p></section>}
+            {selected.question && <section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>{selected.documentType === "qna" ? "질문" : "민원 질의"}</h4><small>{selected.documentType === "qna" ? "등록된 질문" : "민원인이 요청한 내용"}</small></div></div><p><Highlighted text={selected.question} terms={selected.matchedTerms} /></p></section>}
+            {selected.answer && <section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>{selected.documentType === "qna" ? "공식 답변" : "답변 내용"}</h4><small>검토가 완료된 답변</small></div></div><p><Highlighted text={selected.answer} terms={selected.matchedTerms} /></p></section>}
             {selected.documentType === "guide" && <section className="guide-search-pages"><h4>검색어가 나온 문장</h4>{pdfLoading ? <p>원본 PDF의 페이지를 찾고 있습니다…</p> : pdfData ? <><div className="pdf-search-layout"><div className="pdf-page-list">{pdfData.matches.length ? pdfData.matches.map((match) => <button className={activePage === match.pageNumber ? "on" : ""} key={match.pageNumber} onClick={() => setActivePage(match.pageNumber)}><b>{match.pageNumber}쪽</b><span><Highlighted text={match.snippet} terms={match.matchedTerms} /></span></button>) : <p>PDF에서 일치 문장을 찾지 못했습니다.</p>}</div><div className="pdf-preview"><div><b>{activePage}쪽</b><span>검색어: <mark>{searchedQuery}</mark></span><a href={`${pdfData.pdfUrl}#page=${activePage}&search=${encodeURIComponent(searchedQuery)}&view=FitH`} target="_blank" rel="noreferrer">새 창에서 보기 ↗</a></div><iframe key={`${selected.id}-${activePage}`} title={`${selected.title} ${activePage}쪽`} src={`${pdfData.pdfUrl}#page=${activePage}&view=FitH`} /></div></div></> : <p>PDF 조회 정보를 불러오지 못했습니다.</p>}</section>}
             {!selected.question && selected.documentType !== "guide" && selected.content && <section><h4>자료 내용</h4><p><Highlighted text={selected.content} terms={selected.matchedTerms} /></p></section>}
             {!!selected.legalReferences.length && <section><h4>관련 법령</h4><div className="tags">{selected.legalReferences.map((law) => <span key={law}>{law}</span>)}</div></section>}
@@ -853,12 +854,35 @@ function Data({
   refresh: () => Promise<void>;
   flash: (s: string) => void;
 }) {
+  const [entryMode, setEntryMode] = useState<"file" | "qna">("file");
   const [type, setType] = useState("전체");
   const [search, setSearch] = useState("");
   const [detailJob, setDetailJob] = useState<UploadJob | null>(null);
   const [detailData, setDetailData] = useState<JobDetail>({});
   const [detailDocs, setDetailDocs] = useState<RagDocument[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [qnaSaving, setQnaSaving] = useState(false);
+  const [qnaForm, setQnaForm] = useState({ title: "", category: "", question: "", answer: "" });
+  async function saveQna() {
+    if (qnaSaving) return;
+    if (qnaForm.title.trim().length < 2 || qnaForm.question.trim().length < 10 || qnaForm.answer.trim().length < 10) {
+      flash("제목과 10자 이상의 질문·답변을 입력해 주세요.");
+      return;
+    }
+    setQnaSaving(true);
+    try {
+      const response = await fetch("/api/qna", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(qnaForm) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Q&A를 저장하지 못했습니다.");
+      setQnaForm({ title: "", category: "", question: "", answer: "" });
+      flash("Q&A를 저장하고 검색 자료로 등록했습니다.");
+      await refresh();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Q&A를 저장하지 못했습니다.");
+    } finally {
+      setQnaSaving(false);
+    }
+  }
   async function loadDetails(job: UploadJob, quiet = false) {
     if (job.id.startsWith("sample-")) return;
     if (!quiet) setDetailLoading(true);
@@ -888,7 +912,7 @@ function Data({
   }, [detailJob?.id, detailJob?.status]);
   async function removeDocument(id: string) {
     if (
-      !confirm("이 민원과 검색 청크를 삭제할까요? 삭제 후 복구할 수 없습니다.")
+      !confirm("이 자료와 검색 청크를 삭제할까요? 삭제 후 복구할 수 없습니다.")
     )
       return;
     const r = await fetch(`/api/documents/${id}`, { method: "DELETE" });
@@ -898,7 +922,7 @@ function Data({
       return;
     }
     setDetailDocs((v) => v.filter((doc) => doc.id !== id));
-    flash("민원과 검색 청크를 삭제했습니다.");
+    flash("자료와 검색 청크를 삭제했습니다.");
     await refresh();
   }
   async function removeUpload() {
@@ -994,29 +1018,35 @@ function Data({
           color="red"
         />
       </div>
-      <section
-        className={"drop-zone " + (uploading ? "loading" : "")}
-        onClick={() => !uploading && inputRef.current?.click()}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (!uploading) upload(Array.from(e.dataTransfer.files));
-        }}
-      >
-        <div className="upload-icon">⇧</div>
-        <h3>
-          {uploading
-            ? uploadStage || "단계별 처리 상태를 확인하고 있습니다…"
-            : "새 민원 자료 업로드"}
-        </h3>
-        {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
-        <p>Excel 또는 PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
-        <small>
-          민원 원본은 서버·Storage·DB에 저장하지 않음 · 마스킹 PDF와 비식별 요약만 저장
-        </small>
-        <button disabled={uploading}>
-          {uploading ? "처리 중…" : "파일 선택"}
-        </button>
+      <section className="data-entry-card">
+        <div className="data-entry-tabs" role="tablist" aria-label="자료 등록 방식">
+          <button role="tab" aria-selected={entryMode === "file"} className={entryMode === "file" ? "on" : ""} onClick={() => setEntryMode("file")}><span>⇧</span><div><b>파일 업로드</b><small>민원·안내서 PDF와 Excel</small></div></button>
+          <button role="tab" aria-selected={entryMode === "qna"} className={entryMode === "qna" ? "on" : ""} onClick={() => setEntryMode("qna")}><span>Q</span><div><b>Q&A 직접 등록</b><small>질문과 공식 답변 한 쌍</small></div></button>
+        </div>
+        {entryMode === "file" ? <section
+          className={"drop-zone embedded " + (uploading ? "loading" : "")}
+          onClick={() => !uploading && inputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); if (!uploading) upload(Array.from(e.dataTransfer.files)); }}
+        >
+          <div className="upload-icon">⇧</div>
+          <h3>{uploading ? uploadStage || "단계별 처리 상태를 확인하고 있습니다…" : "새 자료 업로드"}</h3>
+          {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
+          <p>Excel 또는 PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
+          <small>민원 원본은 저장하지 않으며 마스킹 PDF와 비식별 요약만 저장합니다.</small>
+          <button disabled={uploading}>{uploading ? "처리 중…" : "파일 선택"}</button>
+        </section> : <div className="qna-entry" role="tabpanel">
+          <div className="qna-entry-head"><div><span>Q&A 자료</span><h3>질문과 공식 답변 등록</h3><p>등록 후 현재 부서의 통합 검색과 답변 초안 근거로 활용됩니다.</p></div><div className="qna-safe-note">질문은 비식별 요약본으로 검색·AI 근거에 사용</div></div>
+          <div className="qna-grid">
+            <label><span>제목 <em>필수</em></span><input maxLength={200} value={qnaForm.title} onChange={(e) => setQnaForm({...qnaForm, title:e.target.value})} placeholder="예: 회원 탈퇴 후 개인정보 삭제 기준" /></label>
+            <label><span>업무 분류 <small>선택</small></span><input maxLength={100} value={qnaForm.category} onChange={(e) => setQnaForm({...qnaForm, category:e.target.value})} placeholder="예: 개인정보 파기" /></label>
+          </div>
+          <div className="qna-pair">
+            <label><span><i>Q</i><b>질문</b><small>{qnaForm.question.length.toLocaleString()} / 10,000자</small></span><textarea maxLength={10000} value={qnaForm.question} onChange={(e) => setQnaForm({...qnaForm, question:e.target.value})} placeholder="질문 내용을 입력하세요. 개인정보는 입력하지 않는 것을 권장합니다." /></label>
+            <label><span><i>A</i><b>공식 답변</b><small>{qnaForm.answer.length.toLocaleString()} / 30,000자</small></span><textarea maxLength={30000} value={qnaForm.answer} onChange={(e) => setQnaForm({...qnaForm, answer:e.target.value})} placeholder="검토가 완료된 답변 내용을 입력하세요." /></label>
+          </div>
+          <div className="qna-actions"><p>저장 시 개인정보 마스킹, 검색 청크 생성 및 임베딩 처리가 자동으로 진행됩니다.</p><button disabled={qnaSaving} onClick={saveQna}>{qnaSaving ? "저장 중…" : "Q&A 저장"}</button></div>
+        </div>}
       </section>
       {uploadBatch.length > 0 && (
         <div className="upload-batch" aria-live="polite">
@@ -1062,6 +1092,7 @@ function Data({
             <select value={type} onChange={(e) => setType(e.target.value)}>
               <option>전체</option>
               <option>민원</option>
+              <option>Q&A</option>
               <option>법령</option>
               <option>안내서</option>
             </select>
@@ -1198,7 +1229,7 @@ function statusClass(v: string) {
 function labelType(v: string) {
   return (
     (
-      { complaint: "민원", law: "법령", guide: "안내서" } as Record<
+      { complaint: "민원", qna: "Q&A", law: "법령", guide: "안내서" } as Record<
         string,
         string
       >

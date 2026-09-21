@@ -285,17 +285,17 @@ export default function DocumentViewer({
                 <>
                   <div className="detail-title">
                     <div>
-                      <span className="type-chip">민원</span>
+                      <span className="type-chip">{active.document_type === "qna" ? "Q&A" : "민원"}</span>
                       <h3>{active.title}</h3>
                     </div>
                     <button
                       className="delete-doc"
                       onClick={() => removeDocument(active.id)}
                     >
-                      민원 삭제
+                      {active.document_type === "qna" ? "Q&A 삭제" : "민원 삭제"}
                     </button>
                   </div>
-                  <div className="complaint-info">
+                  {active.document_type !== "qna" && <div className="complaint-info">
                     {labels.map(([key, label]) => (
                       <div
                         className={key === "summary" ? "wide" : ""}
@@ -305,7 +305,7 @@ export default function DocumentViewer({
                         <strong>{field(active, key)}</strong>
                       </div>
                     ))}
-                  </div>
+                  </div>}
                   {list(active, "attachments").length > 0 && (
                     <section>
                       <h4>첨부파일</h4>
@@ -317,14 +317,14 @@ export default function DocumentViewer({
                     </section>
                   )}
                   <section>
-                    <h4>민원내용</h4>
+                    <h4>{active.document_type === "qna" ? "질문" : "민원내용"}</h4>
                     <p>
                       {active.question_original ||
-                        "분리된 민원내용이 없습니다."}
+                        "저장된 질문이 없습니다."}
                     </p>
                   </section>
                   <section>
-                    <h4>처리결과</h4>
+                    <h4>{active.document_type === "qna" ? "공식 답변" : "처리결과"}</h4>
                     <p>
                       {active.answer_original || "분리된 처리결과가 없습니다."}
                     </p>

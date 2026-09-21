@@ -103,7 +103,7 @@ export async function keywordSearch(department: string, rawQuery: string, option
     // AI evidence receives only the two-track question summary, while the
     // official answer may be supplied verbatim after attribution masking.
     const resultAnswer=doc.answer_original||"";
-    const compactContent=doc.document_type==="complaint"?[resultQuestion,resultAnswer].filter(Boolean).join("\n\n").slice(0,12000):"";
+    const compactContent=["complaint","qna"].includes(doc.document_type)?[resultQuestion,resultAnswer].filter(Boolean).join("\n\n").slice(0,12000):"";
     return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: resultQuestion, answer: resultAnswer, content: compactContent, score, matchedTerms, legalReferences: legal, complaintMetadata: {...(complaintMeta || {}),application_number:doc.application_number,receipt_number:doc.receipt_number}, guideMatches };
   }).filter((item): item is KeywordSearchResult => item !== null);
   const result=[...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
