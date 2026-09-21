@@ -37,7 +37,7 @@ function fallback(masked: string): SafeComplaintSummary {
   const facts = source.filter(v => !request.includes(v)).slice(0, 6);
   return {
     purpose: clean(issue[0] || request[0] || source[0] || '적용되는 개인정보 보호 기준 확인'),
-    essentialFacts: facts.length ? facts : ['구체적인 사실관계는 담당자 확인이 필요함'],
+    essentialFacts: facts.length ? facts : ['구체적인 사실관계는 추가 확인이 필요함'],
     legalQuestions: (issue.length ? issue : ['제시된 사실관계에 적용되는 개인정보 보호 법령상 기준']).slice(0, 4),
     requestedAnswer: (request.length ? request : ['관련 법령과 판단 기준에 근거한 답변 요청']).slice(0, 4),
     uncertainties: [],
