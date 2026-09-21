@@ -82,8 +82,10 @@ function validateSummary(input: unknown): Summary {
 function validateAnswerDirection(input: unknown) {
   if (input === undefined || input === null || input === '') return '';
   if (typeof input !== 'string' || input.length > 1000) throw new Error('INVALID_INPUT');
-  const value=input.trim();
-  if(detectResidualSensitiveInfo(value).length||externalIdentifiers.test(value))throw new Error('PRIVACY_REVIEW_REQUIRED');
+  let value=input.trim();
+  if(externalIdentifiers.test(value))throw new Error('PRIVACY_REVIEW_REQUIRED');
+  for(const finding of detectResidualSensitiveInfo(value).sort((a,b)=>b.value.length-a.value.length))value=value.split(finding.value).join(`[${finding.type}]`);
+  if(detectResidualSensitiveInfo(value).length)throw new Error('PRIVACY_REVIEW_REQUIRED');
   return value;
 }
 function safeEvidence(item:KeywordSearchResult,index:number):Evidence|null{
