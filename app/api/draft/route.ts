@@ -58,7 +58,8 @@ function selectEvidenceWithinBudget(items:Evidence[]){
     if(selected.length>=MAX_EVIDENCE_ITEMS||used.has(item.recordId)||selected.some(existing=>overlaps(existing,item)))return;
     const overhead=JSON.stringify({...item,excerpt:''}).length;
     const allowance=Math.min(item.excerpt.length,remaining-overhead);
-    if(allowance<450)return;
+    const minimumByType:Record<string,number>={qna:60,complaint:140,law:220,guide:260};
+    if(allowance<(minimumByType[item.documentType]||140))return;
     const fitted={...item,excerpt:item.excerpt.slice(0,allowance)};
     const size=JSON.stringify(fitted).length;
     if(size>remaining)return;
