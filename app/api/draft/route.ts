@@ -47,8 +47,15 @@ function selectEvidenceWithinBudget(items:Evidence[]){
   const selected:Evidence[]=[];
   const used=new Set<string>();
   let remaining=EVIDENCE_BUDGET_CHARS;
+  const words=(value:string)=>new Set(value.normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/[^0-9a-z가-힣\s]/g,' ').split(/\s+/).filter(word=>word.length>1));
+  const overlaps=(left:Evidence,right:Evidence)=>{
+    if(!(['guide','qna'].includes(left.documentType)&&['guide','qna'].includes(right.documentType)))return false;
+    const a=words(`${left.title} ${left.excerpt}`);const b=words(`${right.title} ${right.excerpt}`);if(!a.size||!b.size)return false;
+    let common=0;for(const word of a)if(b.has(word))common++;
+    return common/Math.min(a.size,b.size)>=.72;
+  };
   const add=(item:Evidence)=>{
-    if(selected.length>=MAX_EVIDENCE_ITEMS||used.has(item.recordId))return;
+    if(selected.length>=MAX_EVIDENCE_ITEMS||used.has(item.recordId)||selected.some(existing=>overlaps(existing,item)))return;
     const overhead=JSON.stringify({...item,excerpt:''}).length;
     const allowance=Math.min(item.excerpt.length,remaining-overhead);
     if(allowance<450)return;
@@ -57,7 +64,8 @@ function selectEvidenceWithinBudget(items:Evidence[]){
     if(size>remaining)return;
     selected.push(fitted);used.add(item.recordId);remaining-=size;
   };
-  for(const type of ['law','guide','qna','complaint'])add(items.filter(item=>item.documentType===type).sort((a,b)=>b.score-a.score)[0]);
+  // 같은 안내서 문단과 여기서 추출한 Q&A가 겹치면 더 직접적인 Q&A를 우선한다.
+  for(const type of ['law','qna','guide','complaint'])add(items.filter(item=>item.documentType===type).sort((a,b)=>b.score-a.score)[0]);
   for(const item of [...items].sort((a,b)=>b.score-a.score))add(item);
   return selected.map((item,index)=>({...item,reference:`E${index+1}`}));
 }

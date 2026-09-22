@@ -1,8 +1,27 @@
 import { NextResponse } from "next/server";
-import { requireProfile } from "../../../lib/auth";
+import { requireProfile, serviceRequest } from "../../../lib/auth";
 import { processQnaPair } from "../../../lib/ingestion";
 
 export const runtime = "edge";
+
+type SourceRow = { id: string };
+
+export async function GET(request: Request) {
+  try {
+    const profile = await requireProfile({ approved: true });
+    const requested = new URL(request.url).searchParams.get("department");
+    const department = profile.role === "admin" && requested ? requested : profile.department;
+    const sources = await serviceRequest<SourceRow[]>(`/rest/v1/source_files?owning_department=eq.${encodeURIComponent(department)}&select=id&limit=1000`);
+    if (!sources.length) return NextResponse.json({ documents: [] });
+    const batches = Array.from({ length: Math.ceil(sources.length / 40) }, (_, index) => sources.slice(index * 40, index * 40 + 40));
+    const documents = (await Promise.all(batches.map((batch) => serviceRequest<Record<string, unknown>[]>(`/rest/v1/rag_documents?source_file_id=in.(${batch.map((item) => item.id).join(",")})&document_type=eq.qna&status=eq.ready&select=id,title,document_type,department,category_major,question_original,answer_original,metadata,chunk_count,status,created_at&order=created_at.desc&limit=500`)))).flat();
+    return NextResponse.json({ documents });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Q&A 자료를 불러오지 못했습니다.";
+    const status = message === "AUTH_REQUIRED" ? 401 : message === "ACCOUNT_NOT_APPROVED" ? 403 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
 
 export async function POST(request: Request) {
   try {

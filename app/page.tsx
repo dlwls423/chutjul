@@ -864,6 +864,14 @@ function Data({
   const [detailLoading, setDetailLoading] = useState(false);
   const [qnaSaving, setQnaSaving] = useState(false);
   const [qnaForm, setQnaForm] = useState({ title: "", category: "", question: "", answer: "" });
+  const [qnaDocuments,setQnaDocuments]=useState<RagDocument[]>([]);
+  const [qnaLoading,setQnaLoading]=useState(false);
+  const [selectedQna,setSelectedQna]=useState<RagDocument|null>(null);
+  async function loadQnaDocuments(){
+    setQnaLoading(true);
+    try{const response=await fetch('/api/qna',{cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Q&A 자료를 불러오지 못했습니다.');setQnaDocuments(payload.documents||[]);}catch(error){flash(error instanceof Error?error.message:'Q&A 자료를 불러오지 못했습니다.');}finally{setQnaLoading(false);}
+  }
+  useEffect(()=>{if(type==='Q&A')void loadQnaDocuments();},[type]);
   async function saveQna() {
     if (qnaSaving) return;
     if (qnaForm.title.trim().length < 2 || qnaForm.question.trim().length < 10 || qnaForm.answer.trim().length < 10) {
@@ -878,6 +886,7 @@ function Data({
       setQnaForm({ title: "", category: "", question: "", answer: "" });
       flash("Q&A를 저장하고 검색 자료로 등록했습니다.");
       await refresh();
+      await loadQnaDocuments();
     } catch (error) {
       flash(error instanceof Error ? error.message : "Q&A를 저장하지 못했습니다.");
     } finally {
@@ -977,6 +986,7 @@ function Data({
       (type === "전체" || labelType(j.document_type) === type) &&
       j.file_name.toLowerCase().includes(search.toLowerCase()),
   );
+  const filteredQna=qnaDocuments.filter((doc)=>[doc.title,doc.question_original,doc.answer_original].some(value=>String(value||'').toLocaleLowerCase('ko-KR').includes(search.toLocaleLowerCase('ko-KR'))));
   return (
     <div className="data-page">
       <div className="pipeline-note">
@@ -1099,7 +1109,11 @@ function Data({
             </select>
           </div>
         </div>
-        <div className="table-wrap">
+        {type==='Q&A'?<div className="table-wrap qna-library-table">
+          <table><thead><tr><th>Q&A 제목</th><th>등록 방식</th><th>출처</th><th>상태</th><th>등록일</th><th></th></tr></thead><tbody>
+            {qnaLoading?<tr><td colSpan={6}>Q&A 자료를 불러오고 있습니다…</td></tr>:filteredQna.length?filteredQna.map((doc)=>{const masked=(doc.metadata?.masked_row||{}) as Record<string,unknown>;const source=(doc.metadata?.source||{}) as Record<string,unknown>;const guide=String(masked.source_guide_title||'');const page=String(masked.source_page||'');return <tr key={doc.id}><td data-label="Q&A 제목"><div><strong>{doc.title}</strong><small>{doc.category_major||'Q&A'}</small></div></td><td data-label="등록 방식"><span className="type-chip">{guide?'안내서 자동 추출':'직접 등록'}</span></td><td data-label="출처">{guide?`${guide}${page?` · ${page}쪽`:''}`:String(source.file_name||'직접 등록')}</td><td data-label="상태"><span className="status done">검색 가능</span></td><td data-label="등록일">{formatDate(doc.created_at)}</td><td data-label="작업"><button className="view-btn" onClick={()=>setSelectedQna(doc)}>조회</button></td></tr>}):<tr><td colSpan={6}>저장된 Q&A 자료가 없습니다.</td></tr>}
+          </tbody></table>
+        </div>:<div className="table-wrap">
           <table>
             <thead>
               <tr>
@@ -1177,9 +1191,9 @@ function Data({
               ))}
             </tbody>
           </table>
-        </div>
+        </div>}
         <div className="table-foot">
-          <span>총 {filtered.length}개 자료</span>
+          <span>총 {type==='Q&A'?filteredQna.length:filtered.length}개 자료</span>
           <div>
             <button>‹</button>
             <button className="on">1</button>
@@ -1199,8 +1213,16 @@ function Data({
           removeUpload={removeUpload}
         />
       )}
+      {selectedQna&&<QnaDataDetail document={selectedQna} close={()=>setSelectedQna(null)}/>}
     </div>
   );
+}
+function QnaDataDetail({document,close}:{document:RagDocument;close:()=>void}){
+  const masked=(document.metadata?.masked_row||{}) as Record<string,unknown>;
+  const source=(document.metadata?.source||{}) as Record<string,unknown>;
+  const guide=String(masked.source_guide_title||'');
+  const page=String(masked.source_page||'');
+  return <div className="search-detail-backdrop" onMouseDown={close}><section className="search-detail" onMouseDown={event=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Q&A 상세"><header><div><span>Q&A · {guide?'안내서 자동 추출':'직접 등록'}</span><h3>{document.title}</h3><p>{guide?`${guide}${page?` · ${page}쪽`:''}`:String(source.file_name||'직접 등록')} · {formatDate(document.created_at)}</p></div><button aria-label="닫기" onClick={close}>×</button></header><div className="search-detail-body"><section className="complaint-text-card question-card"><div className="text-card-heading"><span>Q</span><div><h4>질문</h4><small>검색·답변 근거로 저장된 질문</small></div></div><p>{document.question_original||'저장된 질문이 없습니다.'}</p></section><section className="complaint-text-card answer-card"><div className="text-card-heading"><span>A</span><div><h4>공식 답변</h4><small>검토된 답변 원문</small></div></div><p>{document.answer_original||'저장된 답변이 없습니다.'}</p></section></div></section></div>;
 }
 function statusLabel(v: string) {
   return (
