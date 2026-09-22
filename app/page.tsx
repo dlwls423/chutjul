@@ -1069,7 +1069,7 @@ function Data({
       </div>
       <section className="data-entry-card">
         <div className="data-entry-tabs" role="tablist" aria-label="자료 등록 방식">
-          <button role="tab" aria-selected={entryMode === "file"} className={entryMode === "file" ? "on" : ""} onClick={() => setEntryMode("file")}><span>⇧</span><div><b>파일 업로드</b><small>민원·안내서 PDF와 Excel</small></div></button>
+          <button role="tab" aria-selected={entryMode === "file"} className={entryMode === "file" ? "on" : ""} onClick={() => setEntryMode("file")}><span>⇧</span><div><b>파일 업로드</b><small>민원·안내서 PDF</small></div></button>
           <button role="tab" aria-selected={entryMode === "qna"} className={entryMode === "qna" ? "on" : ""} onClick={() => setEntryMode("qna")}><span>Q</span><div><b>Q&A 직접 등록</b><small>질문과 공식 답변 한 쌍</small></div></button>
         </div>
         {entryMode === "file" ? <section
@@ -1081,7 +1081,7 @@ function Data({
           <div className="upload-icon">⇧</div>
           <h3>{uploading ? uploadStage || "단계별 처리 상태를 확인하고 있습니다…" : "새 자료 업로드"}</h3>
           {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
-          <p>Excel 또는 PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
+          <p>PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
           <small>민원 원본은 저장하지 않으며 마스킹 PDF와 비식별 요약만 저장합니다.</small>
           <button disabled={uploading}>{uploading ? "처리 중…" : "파일 선택"}</button>
         </section> : <div className="qna-entry" role="tabpanel">

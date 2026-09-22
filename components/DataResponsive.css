@@ -25,6 +25,16 @@
   overflow-x: auto;
   scrollbar-width: thin;
 }
+.file-tools select {
+  min-width: 112px;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+.file-tools select option,
+.type-chip {
+  white-space: nowrap;
+  word-break: keep-all;
+}
 
 @media (max-width: 1050px) {
   .table-wrap {
