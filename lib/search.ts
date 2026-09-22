@@ -106,7 +106,16 @@ export async function keywordSearch(department: string, rawQuery: string, option
     const compactContent=["complaint","qna"].includes(doc.document_type)?[resultQuestion,resultAnswer].filter(Boolean).join("\n\n").slice(0,12000):"";
     return { id: doc.id, title: doc.title, documentType: doc.document_type, department: doc.department, category: [doc.category_major, doc.category_middle, doc.category_minor].filter(Boolean).join(" › "), createdAt: doc.created_at, snippet: snippet(best, matchedTerms), question: resultQuestion, answer: resultAnswer, content: compactContent, score, matchedTerms, legalReferences: legal, complaintMetadata: {...(complaintMeta || {}),application_number:doc.application_number,receipt_number:doc.receipt_number}, guideMatches };
   }).filter((item): item is KeywordSearchResult => item !== null);
-  const result=[...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+  const sorted=[...legalResults,...documentResults].sort((a, b) => b.score - a.score || b.createdAt.localeCompare(a.createdAt));
+  // 답변 근거 검색에서는 한 유형의 결과가 상위 목록을 독점하지 않도록
+  // 민원·Q&A·법령·안내서를 유형별로 먼저 확보한다.
+  const result=options.evidenceOnly
+    ? (()=>{
+        const balanced=["complaint","qna","law","guide"].flatMap(type=>sorted.filter(item=>item.documentType===type).slice(0,25));
+        const ids=new Set(balanced.map(item=>item.id));
+        return [...balanced,...sorted.filter(item=>!ids.has(item.id))].slice(0,120);
+      })()
+    : sorted.slice(0,100);
   searchCache.set(cacheKey,{expires:Date.now()+60_000,value:result});
   if(searchCache.size>100){const first=searchCache.keys().next().value;if(first)searchCache.delete(first);}
   return result;

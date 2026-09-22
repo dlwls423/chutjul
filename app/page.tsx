@@ -527,7 +527,8 @@ function Analyze({
         </div>
       </div>
       <div className="result-grid">
-        <ResultCases open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "complaint" || item.documentType === "qna")} />
+        <ResultCases kind="complaint" open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "complaint")} />
+        <ResultCases kind="qna" open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "qna")} />
         <ResultLaws open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
       {analysisError && <p className="upload-error">{analysisError}</p>}
@@ -588,11 +589,11 @@ function AnalysisResultDetail({item,query,close}:{item:SearchItem;query:string;c
     </div>
   </section></div>;
 }
-function ResultCases({ open, selected, results }: { open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
+function ResultCases({ kind, open, selected, results }: { kind:"complaint"|"qna"; open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
   return (
     <section className="result-card">
-      <Head title="유사 민원" count={`${results.length}건`} />
-      {!results.length && <div className="case"><p>민원을 분석하면 현재 부서의 유사 사례가 표시됩니다.</p></div>}
+      <Head title={kind==="qna"?"관련 Q&A":"유사 민원"} count={`${results.length}건`} />
+      {!results.length && <div className="case"><p>{kind==="qna"?"질문과 직접 관련된 검토 Q&A가 있으면 표시됩니다.":"민원을 분석하면 현재 부서의 유사 사례가 표시됩니다."}</p></div>}
       {results.map((c, i) => (
         <div className={"case " + (selected.has(c.evidenceReference||'') ? "ai-selected" : i === 0 ? "selected" : "")} key={c.id}>
           <div>
@@ -601,7 +602,7 @@ function ResultCases({ open, selected, results }: { open: (item:SearchItem) => v
           </div>
           <h4>{c.title}</h4>
           <p>{c.snippet}</p>
-          <button onClick={() => open(c)}>원문 보기 ↗</button>
+          <button onClick={() => open(c)}>{kind==="qna"?"Q&A 보기 ↗":"원문 보기 ↗"}</button>
         </div>
       ))}
     </section>
