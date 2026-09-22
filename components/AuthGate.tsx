@@ -2,9 +2,11 @@
 import {FormEvent,ReactNode,useEffect,useState} from 'react';
 import './AuthGate.css';
 import './UserNav.css';
+import './DepartmentSelect.css';
+import {OFFICIAL_DEPARTMENTS} from '../lib/departments';
 
 export type Profile={id:string;email:string;full_name:string;department:string;position:string;office_phone:string;role:'admin'|'user';approval_status:'pending'|'approved'|'rejected'};
-const departments=['범정부마이데이터추진단','개인정보보호정책과','조사총괄과','개인정보침해평가과','신기술개인정보과','분쟁조정과'];
+const departments=[...OFFICIAL_DEPARTMENTS];
 type AdminData={users:Array<Profile&{created_at:string}>;changes:Array<{id:string;user_id:string;current_department:string;requested_department:string;reason?:string;status:string;created_at:string}>};
 
 export default function AuthGate({children}:{children:(profile:Profile)=>ReactNode}){

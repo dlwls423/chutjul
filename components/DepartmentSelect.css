@@ -1,0 +1,18 @@
+.auth-card select,
+.auth-modal select {
+  min-height: 42px;
+  appearance: none;
+  padding-right: 36px;
+  background-color: #fff;
+  background-image: linear-gradient(45deg, transparent 50%, #66758a 50%), linear-gradient(135deg, #66758a 50%, transparent 50%);
+  background-position: calc(100% - 18px) 18px, calc(100% - 13px) 18px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: #25364b;
+  cursor: pointer;
+}
+.auth-card select:focus,
+.auth-modal select:focus {
+  border-color: #7299d5;
+  outline: 3px solid rgba(47, 102, 208, .12);
+}

@@ -10,6 +10,7 @@ import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from 
 import { hasGuideFileKeyword } from "../lib/document-classification";
 import { editableTextToSummary, type SafeComplaintSummary } from "../lib/local-draft";
 import { cleanExtractedText, parseEpeopleComplaint } from "../lib/epeople-parser";
+import { WORKSPACE_DEPARTMENTS } from "../lib/departments";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -76,15 +77,7 @@ function SearchWaiting({seconds}:{seconds:number}){
   const message=seconds<3?"민원·Q&A에서 일치 내용을 찾고 있습니다.":seconds<7?"현행 법령과 안내서를 함께 확인하고 있습니다.":"관련도 순으로 결과를 정리하고 있습니다.";
   return <div className="search-waiting" role="status" aria-live="polite"><div className="search-waiting-head"><div><span className="search-pulse" aria-hidden="true"/><b>{message}</b></div><small>{seconds}초 경과</small></div><div className="search-scope-progress"><i/></div><p>검색 중에도 입력한 검색어와 필터는 그대로 유지됩니다.</p><div className="search-skeletons" aria-hidden="true">{[0,1,2].map(item=><div key={item}><i/><span/><span/><span/></div>)}</div></div>;
 }
-const departments = [
-  "범정부마이데이터추진단",
-  "개인정보보호정책과",
-  "조사총괄과",
-  "개인정보침해평가과",
-  "신기술개인정보과",
-  "분쟁조정과",
-  "테스트부서",
-];
+const departments = [...WORKSPACE_DEPARTMENTS];
 export default function Home() {
   return <AuthGate>{(profile) => <WorkspaceApp profile={profile} />}</AuthGate>;
 }
