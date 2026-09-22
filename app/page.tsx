@@ -59,6 +59,22 @@ type SearchItem = {
 };
 type SearchCache = { results: SearchItem[]; searchedQuery: string; tab: string; sort: string; category: string; legal: string; visibleCount: number };
 let searchCache: SearchCache | null = null;
+const searchResponseCache = new Map<string, { at: number; results: SearchItem[] }>();
+function useElapsed(active:boolean){
+  const [seconds,setSeconds]=useState(0);
+  useEffect(()=>{if(!active){setSeconds(0);return;}const started=Date.now();setSeconds(0);const timer=setInterval(()=>setSeconds(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[active]);
+  return seconds;
+}
+function AnalysisWaiting({phase,seconds}:{phase:"searching"|"generating";seconds:number}){
+  const active=phase==="searching"?1:2;
+  const steps=[["확인 완료","비식별 질의를 안전하게 준비했습니다."],["자료 검색","현재 부서의 민원·Q&A·법령·안내서를 비교합니다."],["근거 선별","질문과 직접 관련된 근거만 추립니다."],["초안 작성","선택한 근거를 바탕으로 답변을 구성합니다."]];
+  const tip=phase==="searching"?(seconds<6?"저장된 자료의 제목과 본문을 함께 확인하고 있어요.":"법령과 안내서까지 교차 확인하고 있어요."):(seconds<8?"근거의 관련성과 중복 여부를 확인하고 있어요.":"문단마다 출처가 연결되도록 답변을 작성하고 있어요.");
+  return <section className="analysis-waiting" role="status" aria-live="polite"><div className="waiting-orbit" aria-hidden="true"><i/><span>{seconds}<small>초</small></span></div><div className="waiting-copy"><span>답변 준비 중</span><h3>{phase==="searching"?"관련 자료를 꼼꼼히 찾고 있습니다":"근거를 선별해 답변을 구성하고 있습니다"}</h3><p>{tip}</p></div><div className="waiting-steps">{steps.map(([title,description],index)=><div className={index<active?"complete":index===active?"active":""} key={title}><b>{index<active?"✓":index+1}</b><span><strong>{title}</strong><small>{description}</small></span></div>)}</div></section>;
+}
+function SearchWaiting({seconds}:{seconds:number}){
+  const message=seconds<3?"민원·Q&A에서 일치 내용을 찾고 있습니다.":seconds<7?"현행 법령과 안내서를 함께 확인하고 있습니다.":"관련도 순으로 결과를 정리하고 있습니다.";
+  return <div className="search-waiting" role="status" aria-live="polite"><div className="search-waiting-head"><div><span className="search-pulse" aria-hidden="true"/><b>{message}</b></div><small>{seconds}초 경과</small></div><div className="search-scope-progress"><i/></div><p>검색 중에도 입력한 검색어와 필터는 그대로 유지됩니다.</p><div className="search-skeletons" aria-hidden="true">{[0,1,2].map(item=><div key={item}><i/><span/><span/><span/></div>)}</div></div>;
+}
 const departments = [
   "범정부마이데이터추진단",
   "개인정보보호정책과",
@@ -394,6 +410,8 @@ function Analyze({
   department: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const [analysisPhase,setAnalysisPhase]=useState<"idle"|"searching"|"generating">("idle");
+  const analysisSeconds=useElapsed(analysisPhase!=="idle");
   const [title, setTitle] = useState("");
   const [editorText, setEditorText] = useState("");
   const [answerDirection,setAnswerDirection]=useState("");
@@ -457,31 +475,32 @@ function Analyze({
     if(busy||!acceptedSummary)return;
     const maskedDirection=maskSensitiveText(answerDirection).value;
     if(maskedDirection!==answerDirection){setAnswerDirection(maskedDirection);setSummaryApproved(false);setAnalysisStatus('답변 방향성에서 개인정보를 마스킹했습니다 · 다시 확인해 주세요');flash('답변 방향성에서 개인정보로 의심되는 내용을 마스킹했습니다. 확인 후 다시 수락해 주세요.');return;}
-    setBusy(true);setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);clearDraft();setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
+    setBusy(true);setAnalysisPhase('searching');setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);clearDraft();setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
       const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||'',answerDirection:answerDirection.trim()});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
+      setAnalysisPhase('generating');
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
       const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
-    }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);}
+    }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
   async function retryDraft(){
     if(busy||!preview)return;
-    setBusy(true);setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
+    setBusy(true);setAnalysisPhase('generating');setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
-    }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);}
+    }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
   async function regenerateWithSelected(){
     if(busy||!preview||!manualEvidenceRefs.length)return;
-    setBusy(true);setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
+    setBusy(true);setAnalysisPhase('generating');setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
     try{
       const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature,selectedReferences:manualEvidenceRefs});
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
-    }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);}
+    }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
   async function saveDraftVersion(){
     if(busy||!draft)return;setBusy(true);
@@ -500,6 +519,7 @@ function Analyze({
         <div className="answer-direction"><div className="question-editor-head"><label htmlFor="answer-direction">답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>강조할 판단 기준, 설명 순서나 문체를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id="answer-direction" value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
         <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
+      {analysisPhase!=="idle"&&<AnalysisWaiting phase={analysisPhase} seconds={analysisSeconds}/>}
       <div className="analysis-head">
         <Title
           n="2"
@@ -645,19 +665,28 @@ function Search({
   const [pdfData, setPdfData] = useState<{ pdfUrl: string; pageCount: number; matches: { pageNumber: number; snippet: string; matchedTerms: string[] }[] } | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [activePage, setActivePage] = useState(1);
+  const searchAbortRef=useRef<AbortController|null>(null);
+  const searchSeconds=useElapsed(loading);
+  useEffect(()=>()=>searchAbortRef.current?.abort(),[]);
   useEffect(() => { searchCache = { results, searchedQuery, tab, sort, category, legal, visibleCount }; }, [results, searchedQuery, tab, sort, category, legal, visibleCount]);
   async function runSearch(value = query) {
     const word = value.trim();
     if (!word) { setError("검색어를 입력해 주세요."); return; }
+    const cacheKey=`${department}\u0000${word.normalize("NFKC").toLocaleLowerCase("ko-KR")}`;
+    const cached=searchResponseCache.get(cacheKey);
+    if(cached&&Date.now()-cached.at<5*60_000){setResults(cached.results);setSearchedQuery(word);setTab("전체");setCategory("전체");setLegal("전체 법령");setVisibleCount(20);setError("");return;}
+    searchAbortRef.current?.abort();
+    const controller=new AbortController();searchAbortRef.current=controller;
     setLoading(true); setError(""); setSelected(null);
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(word)}&department=${encodeURIComponent(department)}`, { cache: "no-store" });
+      const response = await fetch(`/api/search?q=${encodeURIComponent(word)}&department=${encodeURIComponent(department)}`, { cache: "no-store",signal:controller.signal });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "검색 중 오류가 발생했습니다.");
-      setResults(payload.results || []); setSearchedQuery(word); setTab("전체");
+      const nextResults=payload.results||[];searchResponseCache.set(cacheKey,{at:Date.now(),results:nextResults});
+      setResults(nextResults); setSearchedQuery(word); setTab("전체");
       setCategory("전체"); setLegal("전체 법령"); setVisibleCount(20);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "검색 중 오류가 발생했습니다."); }
-    finally { setLoading(false); }
+    } catch (cause) { if(cause instanceof DOMException&&cause.name==="AbortError")return;setError(cause instanceof Error ? cause.message : "검색 중 오류가 발생했습니다."); }
+    finally { if(searchAbortRef.current===controller){searchAbortRef.current=null;setLoading(false);} }
   }
   const typeForTab = (item: SearchItem) => tab === "전체" || (tab === "유사민원" && item.documentType === "complaint") || (tab === "Q&A" && item.documentType === "qna") || (tab === "법령" && item.documentType === "law") || (tab === "안내서" && item.documentType === "guide");
   const filtered = results.filter((item) => typeForTab(item) && (category === "전체" || item.category === category) && (legal === "전체 법령" || item.legalReferences.includes(legal)));
@@ -776,7 +805,7 @@ function Search({
           ))}
         </div>
         {error && <div className="search-state search-error">{error}</div>}
-        {loading && <div className="search-state">저장된 자료에서 검색어가 일치하는 내용을 찾고 있습니다.</div>}
+        {loading && <SearchWaiting seconds={searchSeconds}/>}
         {!loading && !error && searchedQuery && !sorted.length && <div className="search-state search-empty"><b>일치하는 자료가 없습니다.</b><span>띄어쓰기나 검색 단어를 줄여 다시 검색해 보세요.</span></div>}
         {!loading && !error && !searchedQuery && <div className="search-state search-empty"><b>검색어를 입력해 주세요.</b><span>입력한 단어가 제목·민원요지·질의·답변·본문에 포함된 자료를 찾아드립니다.</span></div>}
         {tab === "전체" && searchedQuery && !loading && !error && <div className="search-wide-board">
