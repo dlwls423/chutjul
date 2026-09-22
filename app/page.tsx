@@ -4,6 +4,7 @@ import DocumentViewer from "../components/DocumentViewer";
 import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
+import "../components/AnalysisEnhancements.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
@@ -427,6 +428,7 @@ function Analyze({
   const [draft, setDraft] = useState("");
   const [visibleDraft,setVisibleDraft]=useState("");
   const [draftTyping,setDraftTyping]=useState(false);
+  const [draftCopied,setDraftCopied]=useState(false);
   const typingTimerRef=useRef<ReturnType<typeof setInterval>|null>(null);
   const [qualityChecks,setQualityChecks]=useState<Record<string,unknown>>({});
   const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
@@ -506,6 +508,10 @@ function Analyze({
     if(busy||!draft)return;setBusy(true);
     try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answerText:draft,title,applicationNumber:temporaryMeta.application_number||'',summary:safeSummary||{},evidence:selectedEvidence,qualityChecks})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
   }
+  async function copyDraft(){
+    if(!draft)return;
+    try{await navigator.clipboard.writeText(draft);setDraftCopied(true);flash('답변 초안을 복사했습니다.');setTimeout(()=>setDraftCopied(false),1800);}catch{flash('복사하지 못했습니다. 답변 내용을 직접 선택해 복사해 주세요.');}
+  }
   return (
     <div className="content">
       <section className="input-card">
@@ -551,6 +557,7 @@ function Analyze({
         <ResultCases kind="qna" open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "qna")} />
         <ResultLaws open={setSelectedResult} selected={new Set(manualEvidenceRefs)} results={results.filter((item) => item.documentType === "law" || item.documentType === "guide")} />
       </div>
+      {!!results.length&&<div className="evidence-color-guide"><i/><span><b>하늘색 자료</b>는 AI가 답변에 실제로 선택한 근거입니다. 각 목록은 AI 선택 자료를 먼저, 그다음 관련도 점수가 높은 순서로 표시합니다.</span></div>}
       {analysisError && <p className="upload-error">{analysisError}</p>}
       <section className="draft-card">
         <div className="draft-head">
@@ -559,7 +566,7 @@ function Analyze({
             title="답변 초안"
             sub={draft ? "생성된 초안을 담당자가 검토하고 수정하세요." : "비식별 요약을 수락하면 근거 선별과 초안 작성까지 자동으로 진행됩니다."}
           />
-          {draft && <div>{draftTyping&&<span className="typing-status" role="status">초안 작성 중<span aria-hidden="true">•••</span></span>}<button onClick={clearDraft}>전송자료 다시 보기</button><button className="save" disabled={busy||draftTyping} onClick={saveDraftVersion}>{busy?'저장 중…':'버전 저장'}</button></div>}
+          {draft && <div>{draftTyping&&<span className="typing-status" role="status">초안 작성 중<span aria-hidden="true">•••</span></span>}<button className={draftCopied?'copy-done':''} disabled={draftTyping} onClick={copyDraft}>{draftCopied?'✓ 복사 완료':'초안 복사'}</button><button onClick={clearDraft}>전송자료 다시 보기</button><button className="save" disabled={busy||draftTyping} onClick={saveDraftVersion}>{busy?'저장 중…':'버전 저장'}</button></div>}
         </div>
         <div className="draft-body">
           {draft ? <textarea className={`editor draft-editor${draftTyping?' is-typing':''}`} aria-label="답변 초안" value={visibleDraft} onChange={event=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraftTyping(false);setDraft(event.target.value);setVisibleDraft(event.target.value);}} /> : preview ? <div className="editor transmission-review">
@@ -610,14 +617,15 @@ function AnalysisResultDetail({item,query,close}:{item:SearchItem;query:string;c
   </section></div>;
 }
 function ResultCases({ kind, open, selected, results }: { kind:"complaint"|"qna"; open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
+  const ranked=[...results].sort((a,b)=>Number(selected.has(b.evidenceReference||''))-Number(selected.has(a.evidenceReference||''))||b.score-a.score);
   return (
     <section className="result-card">
       <Head title={kind==="qna"?"관련 Q&A":"유사 민원"} count={`${results.length}건`} />
       {!results.length && <div className="case"><p>{kind==="qna"?"질문과 직접 관련된 검토 Q&A가 있으면 표시됩니다.":"민원을 분석하면 현재 부서의 유사 사례가 표시됩니다."}</p></div>}
-      {results.map((c, i) => (
-        <div className={"case " + (selected.has(c.evidenceReference||'') ? "ai-selected" : i === 0 ? "selected" : "")} key={c.id}>
+      {ranked.map((c, i) => (
+        <div className={"case " + (selected.has(c.evidenceReference||'') ? "ai-selected" : "")} key={c.id}>
           <div>
-            <b>{selected.has(c.evidenceReference||'') ? `✓ AI 선택 ${c.evidenceReference}` : `후보 ${c.evidenceReference||''} · 관련도 ${Math.round(c.score)}`}</b>
+            <b>{selected.has(c.evidenceReference||'') ? `✓ AI 선택 · ${i+1}순위 · ${c.evidenceReference}` : `${i+1}순위 · 후보 ${c.evidenceReference||''} · 관련도 ${Math.round(c.score)}`}</b>
             <small>{c.createdAt?.slice(0, 10)} · {c.department}</small>
           </div>
           <h4>{c.title}</h4>
@@ -629,12 +637,13 @@ function ResultCases({ kind, open, selected, results }: { kind:"complaint"|"qna"
   );
 }
 function ResultLaws({ open, selected, results }: { open: (item:SearchItem) => void; selected:Set<string>; results: SearchItem[] }) {
+  const ranked=[...results].sort((a,b)=>Number(selected.has(b.evidenceReference||''))-Number(selected.has(a.evidenceReference||''))||b.score-a.score);
   return (
     <section className="result-card">
       <Head title="관련 법령 · 안내서" count={`${results.length}건`} />
       {!results.length && <div className="law"><p>민원을 분석하면 최신 현행 법령과 안내서가 표시됩니다.</p></div>}
-      {results.map((item, index) => <div className={`law ${selected.has(item.evidenceReference||'') ? "ai-selected" : index === 0 ? "selected" : ""}`} key={item.id}>
-        <b className={item.documentType === "guide" ? "guide" : ""}>{selected.has(item.evidenceReference||'') ? `✓ AI 선택 ${item.evidenceReference}` : `${item.documentType === "guide" ? "안내서" : "현행 법령"} 후보 ${item.evidenceReference||''}`}</b>
+      {ranked.map((item, index) => <div className={`law ${selected.has(item.evidenceReference||'') ? "ai-selected" : ""}`} key={item.id}>
+        <b className={item.documentType === "guide" ? "guide" : ""}>{selected.has(item.evidenceReference||'') ? `✓ AI 선택 · ${index+1}순위 · ${item.evidenceReference}` : `${index+1}순위 · ${item.documentType === "guide" ? "안내서" : "현행 법령"} 후보 ${item.evidenceReference||''} · 관련도 ${Math.round(item.score)}`}</b>
         <h4>{item.title}</h4>
         <p>{item.complaintMetadata?.effective_from ? `시행일 ${String(item.complaintMetadata.effective_from)}` : item.category}</p>
         <blockquote>{item.snippet}</blockquote>

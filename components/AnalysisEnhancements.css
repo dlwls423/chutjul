@@ -1,0 +1,33 @@
+.evidence-color-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 2px 0;
+  padding: 10px 12px;
+  border: 1px solid #d7e4f5;
+  border-radius: 9px;
+  background: #f5f9ff;
+  color: #536986;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.evidence-color-guide i {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 1px solid #75a0dc;
+  border-radius: 3px;
+  background: #eef6ff;
+  box-shadow: inset 2px 0 #3478d4;
+}
+.evidence-color-guide b { color: #285b9d; }
+.draft-head button.copy-done {
+  border-color: #9bd1b9;
+  background: #effaf5;
+  color: #247052;
+}
+@media (max-width: 720px) {
+  .draft-head { gap: 12px; }
+  .draft-head > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
+}
