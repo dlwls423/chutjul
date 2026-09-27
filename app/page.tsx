@@ -153,7 +153,11 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
     if (profile.role !== 'admin') return;
     try {
       const saved = window.localStorage.getItem(departmentStorageKey)?.trim();
-      if (saved) setCurrentDepartment(saved);
+      const normalized = saved === '범정부마이데이터추진단' ? '마이데이터추진단' : saved;
+      if (normalized) {
+        setCurrentDepartment(normalized);
+        if (normalized !== saved) window.localStorage.setItem(departmentStorageKey, normalized);
+      }
     } catch {}
   }, [departmentStorageKey, profile.role]);
   useEffect(() => {

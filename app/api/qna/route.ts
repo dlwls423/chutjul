@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     if (title.length > 200 || question.length > 10000 || answer.length > 30000 || category.length > 100)
       return NextResponse.json({ error: "입력 가능한 글자 수를 초과했습니다." }, { status: 413 });
     const requestedDepartment = typeof body.department === "string" ? body.department.trim() : "";
-    const department = profile.role === "admin" && requestedDepartment ? requestedDepartment : profile.department;
+    const selectedDepartment = profile.role === "admin" && requestedDepartment ? requestedDepartment : profile.department;
+    const department = selectedDepartment === "범정부마이데이터추진단" ? "마이데이터추진단" : selectedDepartment;
     const result = await processQnaPair({ title, question, answer, category, department });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
