@@ -148,6 +148,14 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const refreshSequence = useRef(0);
   const [retryId, setRetryId] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const departmentStorageKey = `chutjul.currentDepartment.${profile.id}`;
+  useEffect(() => {
+    if (profile.role !== 'admin') return;
+    try {
+      const saved = window.localStorage.getItem(departmentStorageKey)?.trim();
+      if (saved) setCurrentDepartment(saved);
+    } catch {}
+  }, [departmentStorageKey, profile.role]);
   useEffect(() => {
     async function loadDepartments() {
       try {
@@ -275,7 +283,11 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
               <select
                 value={currentDepartment}
                 disabled={profile.role !== "admin"}
-                onChange={(e) => setCurrentDepartment(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCurrentDepartment(next);
+                  try { window.localStorage.setItem(departmentStorageKey, next); } catch {}
+                }}
               >
                 {departmentOptions.map((department) => (
                   <option key={department}>{department}</option>
@@ -333,6 +345,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             retry={retry}
             refresh={refresh}
             flash={flash}
+            department={currentDepartment}
           />
         )}
       </section>
@@ -887,6 +900,7 @@ function Data({
   retry,
   refresh,
   flash,
+  department,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   upload: (files?: File[]) => void;
@@ -900,6 +914,7 @@ function Data({
   retry: (id: string) => void;
   refresh: () => Promise<void>;
   flash: (s: string) => void;
+  department: string;
 }) {
   const [entryMode, setEntryMode] = useState<"file" | "qna">("file");
   const [type, setType] = useState("전체");
@@ -915,9 +930,9 @@ function Data({
   const [selectedQna,setSelectedQna]=useState<RagDocument|null>(null);
   async function loadQnaDocuments(){
     setQnaLoading(true);
-    try{const response=await fetch('/api/qna',{cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Q&A 자료를 불러오지 못했습니다.');setQnaDocuments(payload.documents||[]);}catch(error){flash(error instanceof Error?error.message:'Q&A 자료를 불러오지 못했습니다.');}finally{setQnaLoading(false);}
+    try{const response=await fetch(`/api/qna?department=${encodeURIComponent(department)}`,{cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Q&A 자료를 불러오지 못했습니다.');setQnaDocuments(payload.documents||[]);}catch(error){flash(error instanceof Error?error.message:'Q&A 자료를 불러오지 못했습니다.');}finally{setQnaLoading(false);}
   }
-  useEffect(()=>{if(type==='Q&A')void loadQnaDocuments();},[type]);
+  useEffect(()=>{if(type==='Q&A')void loadQnaDocuments();},[type,department]);
   async function saveQna() {
     if (qnaSaving) return;
     if (qnaForm.title.trim().length < 2 || qnaForm.question.trim().length < 10 || qnaForm.answer.trim().length < 10) {
@@ -926,7 +941,7 @@ function Data({
     }
     setQnaSaving(true);
     try {
-      const response = await fetch("/api/qna", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(qnaForm) });
+      const response = await fetch("/api/qna", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...qnaForm, department }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Q&A를 저장하지 못했습니다.");
       setQnaForm({ title: "", category: "", question: "", answer: "" });

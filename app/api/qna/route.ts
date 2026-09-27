@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
     const body = await request.json() as Record<string, unknown>;
-    if (Object.keys(body).some((key) => !["title", "question", "answer", "category"].includes(key)))
+    if (Object.keys(body).some((key) => !["title", "question", "answer", "category", "department"].includes(key)))
       return NextResponse.json({ error: "지원하지 않는 입력 항목이 포함되어 있습니다." }, { status: 400 });
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const question = typeof body.question === "string" ? body.question.trim() : "";
@@ -37,7 +37,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "제목과 10자 이상의 질문·답변을 입력해 주세요." }, { status: 400 });
     if (title.length > 200 || question.length > 10000 || answer.length > 30000 || category.length > 100)
       return NextResponse.json({ error: "입력 가능한 글자 수를 초과했습니다." }, { status: 413 });
-    const result = await processQnaPair({ title, question, answer, category, department: profile.department });
+    const requestedDepartment = typeof body.department === "string" ? body.department.trim() : "";
+    const department = profile.role === "admin" && requestedDepartment ? requestedDepartment : profile.department;
+    const result = await processQnaPair({ title, question, answer, category, department });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Q&A 저장 중 오류가 발생했습니다.";
