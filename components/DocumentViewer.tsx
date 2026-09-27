@@ -166,6 +166,11 @@ export default function DocumentViewer({
   removeUpload: () => Promise<void>;
 }) {
   const [selected, setSelected] = useState("");
+  const [summaryEdits,setSummaryEdits]=useState<Record<string,string>>({});
+  const [summaryEditing,setSummaryEditing]=useState("");
+  const [summaryDraft,setSummaryDraft]=useState("");
+  const [summarySaving,setSummarySaving]=useState(false);
+  const [summaryMessage,setSummaryMessage]=useState("");
   const active = documents.find(
     (doc) => doc.id === (selected || documents[0]?.id),
   );
@@ -179,6 +184,12 @@ export default function DocumentViewer({
     : chunks;
   const transfer = active ? aiData(active) : {};
   const privacy = active ? privacyData(active) : {};
+  const outboundQuestion=active?String(summaryEdits[active.id]??active.question_summary??retrievalData(active).question_summary??""):"";
+  async function saveQuestionSummary(){
+    if(!active||summarySaving)return;
+    setSummarySaving(true);setSummaryMessage("");
+    try{const response=await fetch(`/api/documents/${encodeURIComponent(active.id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({questionSummary:summaryDraft})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');setSummaryEdits(current=>({...current,[active.id]:payload.questionSummary}));setSummaryEditing('');setSummaryMessage('외부 AI 전송용 요약본을 저장했습니다.');}catch(error){setSummaryMessage(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setSummarySaving(false);}
+  }
   return (
     <div className="viewer-back">
       <section className="document-viewer">
@@ -349,7 +360,8 @@ export default function DocumentViewer({
                           <strong>질문</strong>
                           <span className="payload-badge summary">요약본 전송</span>
                         </div>
-                        <p>{String(retrievalData(active).question_summary || "기존 자료는 재처리 후 생성됩니다.")}</p>
+                        {summaryEditing===active.id?<div className="summary-editor"><textarea value={summaryDraft} maxLength={3000} onChange={event=>setSummaryDraft(event.target.value)} aria-label="외부 AI 전송용 질의 요약본"/><div><small>{summaryDraft.length.toLocaleString()} / 3,000자 · 개인정보와 업무 식별자는 입력하지 마세요.</small><span><button type="button" onClick={()=>{setSummaryEditing('');setSummaryMessage('')}} disabled={summarySaving}>취소</button><button type="button" className="primary" onClick={saveQuestionSummary} disabled={summarySaving||summaryDraft.trim().length<10}>{summarySaving?'저장 중…':'요약본 저장'}</button></span></div></div>:<><p>{outboundQuestion||"기존 자료는 재처리 후 생성됩니다."}</p>{active.document_type==='complaint'&&<button type="button" className="summary-edit-button" onClick={()=>{setSummaryEditing(active.id);setSummaryDraft(outboundQuestion);setSummaryMessage('')}}>전송 요약본 편집</button>}</>}
+                        {summaryMessage&&<p className={`summary-edit-message ${summaryEditing===active.id?'error':''}`}>{summaryMessage}</p>}
                       </div>
                       <div className="ai-payload-item">
                         <div className="payload-label">

@@ -2,7 +2,7 @@
 .department-scope{height:40px;gap:8px;border-color:#d5dde8;background:#fff;border-radius:9px;padding:0 8px 0 11px;box-shadow:0 1px 2px rgba(28,57,96,.04)}
 .department-scope small{padding:0;background:transparent;color:#738197;font-size:10px}
 .department-scope small::before{content:'▦';margin-right:5px;color:#4472c4}
-.department-scope select{min-width:150px;max-width:200px;padding:7px 25px 7px 8px;color:#26384f;font-size:12px;font-weight:700;text-overflow:ellipsis}
+.department-scope select{min-width:138px;max-width:180px;padding:7px 25px 7px 8px;color:#26384f;font-size:12px;font-weight:700;text-overflow:ellipsis}
 .history{height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;cursor:pointer}
 .history b{font-size:12px}
 .history-modal{width:min(920px,100%);max-height:min(86vh,820px);overflow:auto}
