@@ -5,6 +5,7 @@ import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
 import "../components/V2Privacy.css";
 import "../components/AnalysisEnhancements.css";
+import "../components/DepartmentRouting.css";
 import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
@@ -449,7 +450,7 @@ function Analyze({
   const [analysisStatus, setAnalysisStatus] = useState("분석 전");
   const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(null);
   const [summaryApproved, setSummaryApproved] = useState(false);
-  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[] } | null>(null);
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[];departmentRouting?:{scope:string;currentDepartment:string;notice:string;issues:Array<{issue:string;candidates:Array<{department:string;likelihood:number;matchedKeywords:string[];matchedDocuments:number;isCurrent:boolean}>}>} } | null>(null);
   const [draft, setDraft] = useState("");
   const [visibleDraft,setVisibleDraft]=useState("");
   const [draftTyping,setDraftTyping]=useState(false);
@@ -504,7 +505,7 @@ function Analyze({
     if(maskedDirection!==answerDirection){setAnswerDirection(maskedDirection);setSummaryApproved(false);setAnalysisStatus('답변 방향성에서 개인정보를 마스킹했습니다 · 다시 확인해 주세요');flash('답변 방향성에서 개인정보로 의심되는 내용을 마스킹했습니다. 확인 후 다시 수락해 주세요.');return;}
     setBusy(true);setAnalysisPhase('searching');setAnalysisError('');setPreview(null);setResults([]);setSelectedEvidence([]);clearDraft();setAnalysisStatus('수락한 요약으로 관련 자료를 찾고 있습니다');
     try{
-      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||'',answerDirection:answerDirection.trim()});
+      const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||'',answerDirection:answerDirection.trim(),department});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
       setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisPhase('generating');
@@ -618,6 +619,7 @@ function Analyze({
           </aside>
         </div>
       </section>
+      {draft&&preview?.departmentRouting&&<section className="department-routing"><div className="routing-heading"><div><span>비공개 전체 자료 비교</span><h3>소관 부서 가능성</h3><p>현재 부서 밖의 자료는 내용이나 출처를 공개하지 않고 부서별 일치 신호만 집계합니다.</p></div><b>참고용</b></div><div className="routing-issues">{preview.departmentRouting.issues.map((entry,index)=>{const candidates=entry.candidates.filter(candidate=>!candidate.isCurrent).slice(0,3);return <article key={`${entry.issue}-${index}`}><h4><span>{index+1}</span>{entry.issue}</h4>{candidates.length?<div>{candidates.map(candidate=><div className="routing-candidate" key={candidate.department}><header><strong>{candidate.department}</strong><em>{candidate.likelihood}%</em></header><div className="routing-meter"><i style={{width:`${candidate.likelihood}%`}}/></div><p>{candidate.matchedKeywords.length?`일치 쟁점: ${candidate.matchedKeywords.join(', ')}`:'유사 업무 자료 확인'} · 관련 자료 {candidate.matchedDocuments}건</p></div>)}</div>:<p className="routing-empty">다른 부서에서 뚜렷한 소관 신호를 찾지 못했습니다.</p>}</article>})}</div><footer>※ {preview.departmentRouting.notice}</footer></section>}
       {selectedResult && <AnalysisResultDetail item={selectedResult} query={safeSummary?.purpose||title} close={()=>setSelectedResult(null)} />}
     </div>
   );
