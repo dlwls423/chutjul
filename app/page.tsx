@@ -287,7 +287,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
                 className="history"
                 onClick={() => setModal("최근 분석 기록")}
               >
-                ↶ 분석 기록
+                <span aria-hidden="true">↶</span><b>답변 기록</b>
               </button>
             ) : (
               <span className="live-refresh">● 2초마다 자동 갱신</span>
@@ -1365,40 +1365,14 @@ function Head({ title, count }: { title: string; count: string }) {
     </div>
   );
 }
-function Modal({ title, close }: { title: string; close: () => void }) {
-  return (
-    <div className="modal-back" onMouseDown={close}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <button className="modal-x" onClick={close}>
-          ×
-        </button>
-        <span className="eyebrow">SOURCE DOCUMENT</span>
-        <h2>{title}</h2>
-        <div className="modal-meta">
-          <span>마이데이터추진단</span>
-          <span>2026-04-18</span>
-          <span>원문 ID DOC-2026-0184</span>
-        </div>
-        <div className="modal-text">
-          <h3>질의 내용</h3>
-          <p>
-            마이데이터 사업자 허가 신청 후 처리기간이 지났으나 결과를 받지 못한
-            경우 법정 처리기한과 진행 상황 확인 방법을 문의합니다.
-          </p>
-          <h3>답변 및 근거</h3>
-          <p>
-            신용정보법 제7조에 따른 허가 여부 결정 기간은 신청 접수일부터
-            3개월입니다. 다만 보완에 필요한 기간은 제외될 수 있으므로 개별 신청
-            건의 보완 이력과 담당 부서 확인이 필요합니다.
-          </p>
-        </div>
-        <div className="modal-actions">
-          <button onClick={close}>닫기</button>
-          <button className="save" onClick={close}>
-            이 근거 사용하기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+type AnswerHistoryItem={id:string;complaint_title?:string;application_number?:string;answer_text?:string;approved_summary?:Record<string,unknown>;version_number?:number;department?:string;created_at?:string};
+function Modal({ close }: { title: string; close: () => void }) {
+  const[items,setItems]=useState<AnswerHistoryItem[]>([]);
+  const[selected,setSelected]=useState<AnswerHistoryItem|null>(null);
+  const[loading,setLoading]=useState(true);
+  const[error,setError]=useState('');
+  useEffect(()=>{let active=true;(async()=>{try{const response=await fetch('/api/answers',{cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'기록을 불러오지 못했습니다.');const versions=Array.isArray(payload.versions)?payload.versions:[];if(active){setItems(versions);setSelected(versions[0]||null);}}catch(reason){if(active)setError(reason instanceof Error?reason.message:'기록을 불러오지 못했습니다.');}finally{if(active)setLoading(false);}})();return()=>{active=false};},[]);
+  const summary=selected?.approved_summary||{};
+  const inquiry=String(summary.inquirySummary||summary.summary||summary.question||'').trim();
+  return <div className="modal-back" onMouseDown={close}><div className="modal history-modal" onMouseDown={(e)=>e.stopPropagation()}><button className="modal-x" onClick={close} aria-label="닫기">×</button><span className="eyebrow">SAVED ANSWERS</span><h2>답변 기록</h2><p className="history-help">직접 저장한 답변 초안과 사용 근거의 버전을 확인할 수 있습니다.</p>{loading?<div className="history-state">저장된 답변을 불러오는 중입니다…</div>:error?<div className="history-state error">{error}</div>:!items.length?<div className="history-state"><b>아직 저장된 답변이 없습니다.</b><span>답변 초안에서 ‘저장’을 누르면 여기에 버전별로 기록됩니다.</span></div>:<div className="history-layout"><div className="history-list" role="list">{items.map(item=><button type="button" role="listitem" className={selected?.id===item.id?'active':''} key={item.id} onClick={()=>setSelected(item)}><strong>{item.complaint_title||'제목 없는 민원'}</strong><span>{item.application_number||'신청번호 없음'} · 버전 {item.version_number||1}</span><small>{item.created_at?new Date(item.created_at).toLocaleString('ko-KR'):'저장일 없음'}</small></button>)}</div>{selected&&<div className="history-detail"><div className="modal-meta"><span>{selected.department||'부서 정보 없음'}</span><span>버전 {selected.version_number||1}</span>{selected.application_number&&<span>{selected.application_number}</span>}</div>{inquiry&&<section><h3>승인한 질의 요약</h3><p>{inquiry}</p></section>}<section><h3>저장된 답변</h3><p>{selected.answer_text||'저장된 답변 내용이 없습니다.'}</p></section></div>}</div>}<div className="modal-actions"><button onClick={close}>닫기</button></div></div></div>;
 }
