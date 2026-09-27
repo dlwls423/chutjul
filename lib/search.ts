@@ -59,9 +59,15 @@ export async function keywordSearch(department: string, rawQuery: string, option
   if(cached&&cached.expires>Date.now())return cached.value;
   // rag_documents.department is the complaint's processing department. Access
   // scope belongs to source_files.owning_department, so resolve source IDs first.
+  // 법령 동기화 테이블에 일시적인 문제가 있더라도 부서 내부자료 검색까지
+  // 함께 중단하지 않는다. 법령 조회 오류는 서버 로그에만 남기고, 민원·Q&A·
+  // 안내서 근거로 계속 진행한다.
   const [sources, legalResults] = await Promise.all([
     request<ScopedSource[]>(`/rest/v1/source_files?owning_department=eq.${encodeURIComponent(department)}&select=id&limit=1000`),
-    searchCurrentLaws(rawQuery, department),
+    searchCurrentLaws(rawQuery, department).catch((error) => {
+      console.error('[keywordSearch] legal evidence lookup failed', error);
+      return [];
+    }),
   ]);
   if (!sources.length) return legalResults;
   const sourceBatches=Array.from({length:Math.ceil(sources.length/40)},(_,index)=>sources.slice(index*40,index*40+40));

@@ -132,7 +132,18 @@ export async function POST(request: Request) {
       if(!scopeDepartment||scopeDepartment.length>60)throw new Error('INVALID_INPUT');
       const answerDirection=validateAnswerDirection(body.answerDirection);
       const query = [summary.purpose,...summary.legalQuestions,...summary.requestedAnswer].join(' ').slice(0,500);
-      const [found,departmentRouting]=await Promise.all([keywordSearch(scopeDepartment,query,{evidenceOnly:true}),analyzeDepartmentRouting(scopeDepartment,[...summary.legalQuestions,...summary.requestedAnswer])]);
+      let found:KeywordSearchResult[];
+      try{
+        found=await keywordSearch(scopeDepartment,query,{evidenceOnly:true});
+      }catch(error){
+        console.error('[draft.prepare] department evidence lookup failed',error);
+        const detail=error instanceof Error?error.message:'';
+        if(/SUPABASE_NOT_CONFIGURED/.test(detail))throw new Error('NOT_CONFIGURED');
+        if(/SUPABASE_(401|403)|AUTH_(401|403)/.test(detail))throw new Error('EVIDENCE_SEARCH_AUTH_FAILED');
+        if(/SUPABASE_400|PGRST|42P01|42703/.test(detail))throw new Error('EVIDENCE_SEARCH_SCHEMA_FAILED');
+        throw new Error('EVIDENCE_SEARCH_FAILED');
+      }
+      const departmentRouting=await analyzeDepartmentRouting(scopeDepartment,[...summary.legalQuestions,...summary.requestedAnswer]);
       const chosenCandidates=['complaint','qna','law','guide'].flatMap(type=>found.filter(item=>item.documentType===type).slice(0,type==='law'?5:4));
       const evidence=selectEvidenceWithinBudget(chosenCandidates.map(safeEvidence).filter((item):item is Evidence=>Boolean(item)));
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
@@ -214,7 +225,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ draft, selectedEvidence, qualityChecks }, { headers });
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
-    const messages: Record<string,string> = { INVALID_INPUT:'요청 형식이 올바르지 않습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.', REQUEST_TOO_LARGE:'선택된 근거가 너무 많아 안전한 크기로 처리하지 못했습니다. 근거를 줄여 다시 시도해 주세요.', PRIVACY_REVIEW_REQUIRED:'비식별 요약에 식별정보로 의심되는 내용이 있어 전송을 차단했습니다. 민원 내용을 확인해 주세요.', NO_VERIFIED_EVIDENCE:'개인정보 재검사를 통과한 관련 근거를 찾지 못했습니다.', REVIEW_EXPIRED:'전송자료 확인 시간이 만료되었습니다. 근거를 다시 확인해 주세요.', NOT_CONFIGURED:'AI 설정이 준비되지 않았습니다.', OUTPUT_REVIEW_FAILED:'생성 결과 검증을 통과하지 못했습니다. 담당자 검토가 필요합니다.', GENERATION_FAILED:'초안 생성에 실패했습니다. 원문은 전송되지 않았습니다.' };
+    const messages: Record<string,string> = { INVALID_INPUT:'요청 형식이 올바르지 않습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.', REQUEST_TOO_LARGE:'선택된 근거가 너무 많아 안전한 크기로 처리하지 못했습니다. 근거를 줄여 다시 시도해 주세요.', PRIVACY_REVIEW_REQUIRED:'비식별 요약에 식별정보로 의심되는 내용이 있어 전송을 차단했습니다. 민원 내용을 확인해 주세요.', NO_VERIFIED_EVIDENCE:'개인정보 재검사를 통과한 관련 근거를 찾지 못했습니다.', REVIEW_EXPIRED:'전송자료 확인 시간이 만료되었습니다. 근거를 다시 확인해 주세요.', NOT_CONFIGURED:'AI 설정이 준비되지 않았습니다.', EVIDENCE_SEARCH_AUTH_FAILED:'근거 저장소 연결 권한을 확인하지 못했습니다. 관리자에게 환경설정 확인을 요청해 주세요.', EVIDENCE_SEARCH_SCHEMA_FAILED:'근거 저장소의 테이블 구조가 현재 사이트와 맞지 않습니다. 관리자에게 DB 마이그레이션 확인을 요청해 주세요.', EVIDENCE_SEARCH_FAILED:'관련 근거를 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.', OUTPUT_REVIEW_FAILED:'생성 결과 검증을 통과하지 못했습니다. 담당자 검토가 필요합니다.', GENERATION_FAILED:'초안 생성에 실패했습니다. 원문은 전송되지 않았습니다.' };
     return NextResponse.json({ error: messages[code] || '요청 검증에 실패하여 처리를 중단했습니다.' }, { status: code === 'AUTH_REQUIRED' ? 401 : 400, headers });
   }
 }
