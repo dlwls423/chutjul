@@ -35,5 +35,18 @@
 .approval-badge.approved{background:#e8f6ef;color:#20815a}
 .approval-badge.rejected{background:#fbecec;color:#b34b4b}
 .request-history article{align-items:center}
+.department-admin{margin-bottom:26px;padding:20px;background:#fff;border:1px solid #dfe6ef;border-radius:14px;box-shadow:0 5px 18px rgba(27,48,75,.04)}
+.department-admin-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
+.department-admin-head h3{margin:0 0 5px!important;font-size:15px}
+.department-admin-head p{margin:0;color:#718096;font-size:11px}
+.department-admin-head form{display:flex!important;grid-template-columns:none!important;gap:8px!important;min-width:min(360px,100%)}
+.department-admin-head input{height:38px;margin:0!important;min-width:0}
+.department-admin-head button{flex:0 0 auto;border:0!important;border-radius:8px!important;padding:0 14px!important;background:#2f66d0!important;color:#fff;font-weight:700;cursor:pointer}
+.department-admin-head button:disabled,.department-list button:disabled{cursor:wait;opacity:.55}
+.department-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:17px}
+.department-list>span{display:inline-flex;align-items:center;gap:5px;padding:7px 8px 7px 11px;border:1px solid #dbe3ed;border-radius:999px;background:#f8fafc;color:#43536a;font-size:11px;font-weight:600}
+.department-list button{display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;background:#e9eef5;color:#738096;font-size:15px;line-height:1;cursor:pointer}
+.department-list button:hover{background:#fbe7e7;color:#b23c3c}
+.department-admin-message{margin:12px 0 0;padding:9px 11px;border-radius:7px;background:#f4f7fb;color:#52637a;font-size:11px}
 @media(max-width:900px){.account-dock{width:40px;left:16px}.account-dock span,.account-dock .logout{display:none}.account-dock .admin-link{left:8px;width:56px;top:282px;padding:12px 14px;font-size:0}.account-dock .admin-link::before{font-size:18px}.sidebar .profile{display:none}.sidebar-bottom{margin-bottom:72px}.auth-modal-back:has(.admin-modal){left:72px}.auth-modal-back:has(.admin-modal) .admin-modal{padding-left:24px;padding-right:24px}}
-@media(max-width:600px){.account-dock{left:auto;right:10px;bottom:72px;width:160px;border-top:0}.account-dock span,.account-dock .logout{display:block}.account-dock .admin-link{position:static;width:100%;font-size:11px;background:transparent;color:#aebbd0}.account-dock .admin-link.active{background:#294363;color:#fff}.account-dock .admin-link::before{font-size:16px}.sidebar-bottom{margin-bottom:0}.auth-modal-back:has(.admin-modal){left:0;bottom:62px}.auth-modal-back:has(.admin-modal) .admin-modal{padding:92px 16px 30px}.auth-modal-back:has(.admin-modal) .admin-modal>h2{height:76px;padding:24px 16px;font-size:19px}.auth-modal-back:has(.admin-modal) .auth-x{right:14px;top:20px}}
+@media(max-width:600px){.account-dock{left:auto;right:10px;bottom:72px;width:160px;border-top:0}.account-dock span,.account-dock .logout{display:block}.account-dock .admin-link{position:static;width:100%;font-size:11px;background:transparent;color:#aebbd0}.account-dock .admin-link.active{background:#294363;color:#fff}.account-dock .admin-link::before{font-size:16px}.sidebar-bottom{margin-bottom:0}.auth-modal-back:has(.admin-modal){left:0;bottom:62px}.auth-modal-back:has(.admin-modal) .admin-modal{padding:92px 16px 30px}.auth-modal-back:has(.admin-modal) .admin-modal>h2{height:76px;padding:24px 16px;font-size:19px}.auth-modal-back:has(.admin-modal) .auth-x{right:14px;top:20px}.department-admin{padding:15px}.department-admin-head{align-items:stretch;flex-direction:column}.department-admin-head form{min-width:0}.department-list{max-height:210px;overflow:auto}.department-list>span{max-width:100%}}

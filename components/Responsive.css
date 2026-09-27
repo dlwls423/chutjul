@@ -27,7 +27,7 @@
   .search-page{min-height:calc(100vh - 138px)}
   .search-hero{padding:28px 12px 22px}
   .search-hero h2{font-size:21px}
-  .big-search{height:46px;margin-top:18px;padding-left:12px}
+  .big-search{height:auto;margin-top:18px;padding-left:12px}
   .big-search input{min-width:0;padding:0 8px;font-size:12px}
   .big-search button{height:34px;padding:0 14px}
   .filters{grid-template-columns:1fr}

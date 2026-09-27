@@ -77,7 +77,6 @@ function SearchWaiting({seconds}:{seconds:number}){
   const message=seconds<3?"민원·Q&A에서 일치 내용을 찾고 있습니다.":seconds<7?"현행 법령과 안내서를 함께 확인하고 있습니다.":"관련도 순으로 결과를 정리하고 있습니다.";
   return <div className="search-waiting" role="status" aria-live="polite"><div className="search-waiting-head"><div><span className="search-pulse" aria-hidden="true"/><b>{message}</b></div><small>{seconds}초 경과</small></div><div className="search-scope-progress"><i/></div><p>검색 중에도 입력한 검색어와 필터는 그대로 유지됩니다.</p><div className="search-skeletons" aria-hidden="true">{[0,1,2].map(item=><div key={item}><i/><span/><span/><span/></div>)}</div></div>;
 }
-const departments = [...WORKSPACE_DEPARTMENTS];
 export default function Home() {
   return <AuthGate>{(profile) => <WorkspaceApp profile={profile} />}</AuthGate>;
 }
@@ -134,6 +133,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const [currentDepartment, setCurrentDepartment] = useState(
     profile.department,
   );
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([...WORKSPACE_DEPARTMENTS]);
   const [query, setQuery] = useState("허가 처리기간이 30일을 넘은 민원");
   const [text, setText] = useState(complaint);
   const [masked, setMasked] = useState(false);
@@ -148,6 +148,21 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const refreshSequence = useRef(0);
   const [retryId, setRetryId] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    async function loadDepartments() {
+      try {
+        const response = await fetch('/api/departments', { cache: 'no-store' });
+        const json = await response.json();
+        if (!response.ok || !Array.isArray(json.departments)) return;
+        const next = [...json.departments];
+        if (!next.includes(currentDepartment)) next.push(currentDepartment);
+        setDepartmentOptions(next);
+      } catch {}
+    }
+    void loadDepartments();
+    window.addEventListener('departments-updated', loadDepartments);
+    return () => window.removeEventListener('departments-updated', loadDepartments);
+  }, [currentDepartment]);
   function flash(s: string) {
     setToast(s);
     setTimeout(() => setToast(""), 3000);
@@ -262,7 +277,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
                 disabled={profile.role !== "admin"}
                 onChange={(e) => setCurrentDepartment(e.target.value)}
               >
-                {departments.map((department) => (
+                {departmentOptions.map((department) => (
                   <option key={department}>{department}</option>
                 ))}
               </select>
