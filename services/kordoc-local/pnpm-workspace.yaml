@@ -1,0 +1,7 @@
+minimumReleaseAgeExclude:
+  - kordoc@4.21.25
+packages:
+  - '.'
+allowBuilds:
+  onnxruntime-node: true
+  protobufjs: true

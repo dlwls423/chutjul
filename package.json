@@ -11,6 +11,11 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "test:regression": "node --experimental-strip-types scripts/regression-answer-template.mjs",
+    "test:privacy": "node --experimental-strip-types scripts/regression-privacy.mjs --strict-gaps",
+    "test:privacy:baseline": "node --experimental-strip-types scripts/regression-privacy.mjs",
+    "test:documents": "node --experimental-strip-types scripts/regression-local-document.mjs",
+    "test:workspaces": "node --experimental-strip-types scripts/regression-workspaces.mjs",
+    "test:routing": "node --experimental-strip-types scripts/regression-department-routing.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

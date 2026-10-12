@@ -7,9 +7,12 @@ import {
 } from "./epeople-parser";
 import { hasGuideFileKeyword } from "./document-classification";
 import { detectResidualSensitiveInfo } from "./privacy-check";
+import { PHONE_SOURCE, phoneNumberPattern, labeledNamePattern, nameBeforeTitlePattern, nameAfterTitlePattern } from "./privacy-patterns";
 import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "./business-identifiers";
 import { summarizeQuestionForRetrieval, summarizeAnswerForRetrieval } from "./retrieval-summary";
+import { validatePreparedDocument } from "./prepared-document";
+import { buildKordocEvidence } from "./guide-indexing";
 import { buildGuideEvidence } from "./guide-indexing";
 import { extractGuideQnaWithAi } from "./guide-qna";
 import { normalizeJsonRequestBody } from "./safe-json";
@@ -472,6 +475,12 @@ export async function parseFile(
   file: File,
 ): Promise<{ records: Row[]; pageCount?: number; rawText: string }> {
   const lower = file.name.toLowerCase();
+  if (lower.endsWith(".chutjul.json")) {
+    if (file.size > 8 * 1024 * 1024) throw new Error("PREPARED_DOCUMENT_INVALID");
+    const prepared = validatePreparedDocument(JSON.parse(await file.text()));
+    const pages = JSON.parse(prepared.record.guide_pages || "[]");
+    return {records:[prepared.record],pageCount:prepared.record.page_mode === "layout" ? pages.length || undefined : undefined,rawText:""};
+  }
   if (lower.endsWith(".pdf")) throw new Error("PDF_SECURE_PIPELINE_REQUIRED");
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     const rows = await readXlsxFile(await file.arrayBuffer());
@@ -504,7 +513,7 @@ export function maskPersonalInfo(text: string) {
   const rules: [string, RegExp, (v: string) => string][] = [
     [
       "휴대전화",
-      /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,
+      phoneNumberPattern(),
       (v) => `${v.slice(0, 3)}-****-${v.slice(-4)}`,
     ],
     [
@@ -539,12 +548,12 @@ export function maskPersonalInfo(text: string) {
     ],
     [
       "성명",
-      /(?:성명|이름|민원인|대표자|담당자|처리자|예금주)\s*[:：]?\s*[가-힣]{2,5}/g,
+      labeledNamePattern(),
       (v) => v.replace(/[가-힣]{2,5}$/, "[비식별]"),
     ],
     ["성명", /[가-힣]{2,5}(?=\s+(?:담당자|처리자|대표자))/g, () => "[비식별]"],
-    ["직함 인접 성명", /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g, () => "[비식별]"],
-    ["직함 인접 성명", /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g, (v) => v.replace(/[가-힣]{2,4}$/, "[비식별]")],
+    ["직함 인접 성명", nameBeforeTitlePattern(), () => "[비식별]"],
+    ["직함 인접 성명", nameAfterTitlePattern(), (v) => v.replace(/[가-힣]{2,4}$/, "[비식별]")],
     ["법인명", /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g, () => "[법인명]"],
   ];
   for (const [type, re, fn] of rules)
@@ -570,7 +579,7 @@ export function maskAnswerAttribution(text: string) {
     },
   );
   tail = tail.replace(
-    new RegExp(`((?:${titles})\\s*[（(]?)((?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4})(?=[)）]?)`, "g"),
+    new RegExp(`((?:${titles})\\s*[（(]?)(${PHONE_SOURCE})(?=[)）]?)`, "g"),
     (_match, prefix: string, phone: string) => {
       findings.push({ type: "답변 작성자 연락처", value: phone });
       return `${prefix}[비식별]`;
@@ -705,7 +714,7 @@ function buildMetadata(args: {
   } = args;
   const visibleRow = Object.fromEntries(
     Object.entries(row).filter(
-      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "guide_pages" && key !== "application_number" && key !== "receipt_number" && !(row.document_type === "guide" && (key === "content" || key === "guide_toc")),
+      ([key]) => !key.startsWith("ai_") && !key.startsWith("privacy_") && key !== "guide_pages" && key !== "kordoc_chunks" && key !== "application_number" && key !== "receipt_number" && !(row.document_type === "guide" && (key === "content" || key === "guide_toc")),
     ),
   );
   const structured = parseJsonObject(row.privacy_structured);
@@ -1012,10 +1021,12 @@ export async function persistRecords(
         ? [retrieval.question_summary, item.row.document_type === "qna" ? maskAnswerAttribution(item.row.answer || "").masked : retrieval.answer_summary].filter(Boolean).join("\n\n")
         : item.masked));
     const guideChunks = item.row.document_type === "guide"
-      ? buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc))
+      ? (item.row.kordoc_chunks && item.row.kordoc_chunks !== "[]"
+        ? buildKordocEvidence(JSON.parse(item.row.kordoc_chunks))
+        : buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc)))
       : [];
     const contents = guideChunks.length
-      ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { page_number: chunk.pageNumber, page_end: chunk.pageEnd, section_title: chunk.sectionTitle, section_path: chunk.sectionPath, chunk_kind: chunk.chunkKind, content_type: chunk.contentType, keywords: chunk.keywords, legal_references: chunk.legalReferences, indexing_version: 3 } }))
+      ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { ...(item.row.parser && item.row.page_mode !== "layout" ? {section_index:chunk.pageNumber} : {page_number: chunk.pageNumber, page_end: chunk.pageEnd}), section_title: chunk.sectionTitle, section_path: chunk.sectionPath, chunk_kind: chunk.chunkKind, content_type: chunk.contentType, keywords: chunk.keywords, legal_references: chunk.legalReferences, indexing_version: 4, parser: item.row.parser || "legacy", source_format: item.row.source_format || "pdf", page_mode: item.row.page_mode || "layout" } }))
       : [context, ...chunkText(searchable)].filter((value, index, all) => value && all.indexOf(value) === index).map((content) => ({ content }));
     contents.forEach((entry, chunkIndex) =>
       pending.push({
@@ -1126,6 +1137,7 @@ export async function processUpload(
   department: string,
   browserPrivacy?: BrowserPrivacyResult,
 ) {
+  if (file.name.endsWith(".chutjul.json")) await parseFile(file);
   const config = getConfig();
   const hash = await sha256(file);
   const duplicateHash = browserPrivacy?.originalHash || hash;
@@ -1204,6 +1216,7 @@ export async function retryUpload(
   department: string,
   browserPrivacy?: BrowserPrivacyResult,
 ) {
+  if (file.name.endsWith(".chutjul.json")) await parseFile(file);
   const config = getConfig();
   const hash = await sha256(file);
   const source = await supabase<{ id: string; original_name: string }[]>(
@@ -1229,7 +1242,7 @@ export async function retryUpload(
     file,
     jobId,
     source[0].id,
-    hasGuideFileKeyword(file.name) && !browserPrivacy ? "guide" : "complaint",
+    file.name.endsWith(".chutjul.json") ? (await parseFile(file)).records[0].document_type : hasGuideFileKeyword(file.name) && !browserPrivacy ? "guide" : "complaint",
     department,
     browserPrivacy,
     hash,
@@ -1248,8 +1261,10 @@ async function runPipeline(
   try {
     await updateJob(config, jobId, "checking", { progress: 8 });
     const isPdf = file.name.toLowerCase().endsWith(".pdf");
-    const isGuidePdf = isPdf && documentType === "guide" && !browserPrivacy;
+    const isPrepared = file.name.endsWith(".chutjul.json");
+    const isGuidePdf = (isPdf || isPrepared) && documentType === "guide" && !browserPrivacy;
     const isComplaintPdf = isPdf && !isGuidePdf;
+    if (isPrepared && !isGuidePdf) verifyBrowserPrivacy(browserPrivacy, fileHash);
     let verifiedPrivacy: BrowserPrivacyResult | undefined;
     let maskedPdfPages: number | undefined;
     if (isComplaintPdf) {
@@ -1261,7 +1276,7 @@ async function runPipeline(
         throw new Error("MASKED_PDF_CONTAINS_EXTRACTABLE_TEXT");
     }
     await updateJob(config, jobId, "uploading", { progress: 18 });
-    const storagePath = await storeOriginal(config, file, fileId, isComplaintPdf);
+    const storagePath = isPrepared ? undefined : await storeOriginal(config, file, fileId, isComplaintPdf);
     let parsed: { records: Row[]; pageCount?: number; rawText: string };
     let extractedPageTexts: string[] = [];
     let piiCount = 0;
@@ -1284,6 +1299,7 @@ async function runPipeline(
     } else {
       await updateJob(config, jobId, "parsing", { progress: 30 });
       parsed = await parseFile(file);
+      if (isPrepared && isGuidePdf) extractedPageTexts = JSON.parse(parsed.records[0].guide_pages || "[]");
     }
     if (isGuidePdf) {
       await updateJob(config, jobId, "extracting_qna", { progress: 48 });
@@ -1369,7 +1385,7 @@ async function runPipeline(
       ...stats,
       piiCount: Math.max(stats.piiCount, piiCount),
     };
-    await reconcilePdf(config, file.name, fileId, department, storagePath);
+    if (storagePath) await reconcilePdf(config, file.name, fileId, department, storagePath);
     await updateJob(config, jobId, "completed", {
       progress: 100,
       completed_at: new Date().toISOString(),

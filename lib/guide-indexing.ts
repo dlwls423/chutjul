@@ -10,6 +10,26 @@ export type GuideEvidenceChunk = {
   legalReferences: string[];
 };
 
+// Keep kordoc's heading paths and table rows intact. Repeat the table header
+// when splitting a long table so each retrieved excerpt remains interpretable.
+export function buildKordocEvidence(chunks: {type:string;text:string;breadcrumb:string[];page?:number}[]):GuideEvidenceChunk[] {
+  return chunks.filter(c=>c.text.trim() && c.type !== 'heading').flatMap(c=>{
+    const header = c.type === 'table' ? c.text.split('\n').slice(0,2).join('\n') : '';
+    const lines = c.text.split('\n');
+    const parts:string[]=[]; let part='';
+    for (const line of lines) {
+      // A single oversized line is split rather than exceeding embedding limits.
+      const pieces = line.length > 1800 ? line.match(/[\s\S]{1,1800}/g)! : [line];
+      for (const piece of pieces) {
+        if (part.length + piece.length > 2200 && part.trim()) {parts.push(part);part=header;}
+        part += `${part?'\n':''}${piece}`;
+      }
+    }
+    if (part.trim()) parts.push(part);
+    return parts.map(content=>({content,pageNumber:c.page||1,pageEnd:c.page||1,sectionTitle:c.breadcrumb.at(-1)||null,sectionPath:c.breadcrumb,chunkKind:'guide_evidence' as const,contentType:contentType(content),keywords:keywords(content),legalReferences:legalReferences(content)}));
+  });
+}
+
 const headingPattern = /^(?:(?:제\s*\d+\s*[장절편])|(?:\d+(?:\.\d+){0,3}[.)]?)|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?)|(?:[가-힣][.)]))\s*\S+|^(?:부록|붙임|참고|별첨|용어 설명|자주 묻는 질문|FAQ)/i;
 
 function clean(value: string) {

@@ -3,6 +3,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { PDFDocument } from "pdf-lib";
 import { cleanExtractedText, parseEpeopleComplaint } from "./epeople-parser";
 import { maskBusinessIdentifiers } from "./business-identifiers";
+import { PHONE_SOURCE, phoneNumberPattern, labeledNamePattern, nameBeforeTitlePattern, nameAfterTitlePattern } from "./privacy-patterns";
 import { maskVehicleNumbers, vehicleNumberPattern } from "./vehicle-identifiers";
 
 export type BrowserPrivacyPayload = {
@@ -59,7 +60,7 @@ function mask(text: string) {
   value = apply(
     value,
     "전화번호",
-    /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,
+    phoneNumberPattern(),
     "[전화번호]",
   );
   value = apply(
@@ -95,19 +96,19 @@ function mask(text: string) {
   value = apply(
     value,
     "성명",
-    /(?:성명|이름|민원인|대표자|담당자|처리자|예금주)\s*[:：]?\s*[가-힣]{2,5}/g,
+    labeledNamePattern(),
     (v) => v.replace(/[가-힣]{2,5}$/, "[성명]"),
   );
   value = apply(
     value,
     "직함 인접 성명",
-    /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g,
+    nameBeforeTitlePattern(),
     "[성명]",
   );
   value = apply(
     value,
     "직함 인접 성명",
-    /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g,
+    nameAfterTitlePattern(),
     (v) => v.replace(/[가-힣]{2,4}$/, "[성명]"),
   );
   value = apply(
@@ -139,7 +140,7 @@ export function maskAnswerAttribution(text: string) {
     },
   );
   tail = tail.replace(
-    new RegExp(`((?:${titles})\\s*[（(]?)((?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4})(?=[)）]?)`, "g"),
+    new RegExp(`((?:${titles})\\s*[（(]?)(${PHONE_SOURCE})(?=[)）]?)`, "g"),
     (_match, prefix: string) => {
       counts["답변 작성자 연락처"] =
         (counts["답변 작성자 연락처"] || 0) + 1;
@@ -153,19 +154,19 @@ export function maskAnswerAttribution(text: string) {
       (answer.match(vehicleNumberPattern()) || []).length;
   return { value: vehicleMasked, counts };
 }
-function redactionRanges(text: string) {
+export function redactionRanges(text: string) {
   const ranges: { start: number; end: number }[] = [];
   const rules = [
     /\b\d{6}[-\s]?[1-8]\d{6}\b/g,
-    /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,
+    phoneNumberPattern(),
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
     /\b\d{3}[-\s]?\d{2}[-\s]?\d{5}\b/g,
     /(?:계좌|카드)(?:번호)?\s*[:：]?\s*\d{3,6}(?:[-\s]\d{2,6}){2,3}/g,
     /\b[12]AA-\d{4}-\d{6,}\b/gi,
     vehicleNumberPattern(),
-    /(?:성명|이름|민원인|대표자|담당자|처리자|예금주)\s*[:：]?\s*[가-힣]{2,5}/g,
-    /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g,
-    /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g,
+    labeledNamePattern(),
+    nameBeforeTitlePattern(),
+    nameAfterTitlePattern(),
     /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g,
     /(?:주소|소재지|거주지)\s*[:：]?\s*[^\n]{5,80}/g,
     /\d{1,2}:\d{2}\s+[가-힣]{2,4}(?=\s|$)/g,
@@ -182,7 +183,7 @@ function answerAttributionRanges(text: string) {
   const titles = "주무관|연구원|책임연구원|선임연구원|사무관";
   const rules = [
     new RegExp(`[가-힣]{2,5}\\s*(?=(?:${titles})(?:\\s|$|[,(（]))`, "g"),
-    new RegExp(`(?:${titles})\\s*[（(]?\\s*(?:\\+?82[-.\\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}`, "g"),
+    new RegExp(`(?:${titles})\\s*[（(]?\\s*${PHONE_SOURCE}`, "g"),
   ];
   for (const rule of rules)
     for (const found of text.matchAll(rule)) {

@@ -1,32 +1,243 @@
-import {serviceRequest} from './auth';
+import { serviceRequest } from "./auth";
 
-type Source={id:string;owning_department:string};
-type Document={source_file_id:string;title:string;category_major:string|null;category_middle:string|null;category_minor:string|null;question_summary:string|null;answer_summary:string|null;metadata:Record<string,unknown>|null};
-export type DepartmentRouting={scope:'aggregate_only';currentDepartment:string;issues:Array<{issue:string;candidates:Array<{department:string;likelihood:number;matchedKeywords:string[];matchedDocuments:number;isCurrent:boolean}>}>;notice:string};
+type Source = { id: string; owning_department: string };
+export type RoutingDocument = {
+  id: string;
+  source_file_id: string;
+  title: string;
+  category_major: string | null;
+  category_middle: string | null;
+  category_minor: string | null;
+  question_summary: string | null;
+  metadata: Record<string, unknown> | null;
+};
+export type RoutingCandidate = {
+  department: string;
+  likelihood: number;
+  matchedKeywords: string[];
+  sampleBand: string;
+  isCurrent: boolean;
+};
+export type DepartmentRouting = {
+  scope: "aggregate_only";
+  currentDepartment: string;
+  status: "ready" | "no_signal" | "unavailable";
+  candidates: RoutingCandidate[];
+  issues: Array<{ issue: string; candidates: RoutingCandidate[] }>;
+  notice: string;
+  evaluatedAt: string;
+};
+const stopWords = new Set([
+  "관련",
+  "대한",
+  "대해",
+  "문의",
+  "요청",
+  "여부",
+  "어떻게",
+  "무엇인지",
+  "알려",
+  "주세요",
+  "확인",
+  "경우",
+  "있는지",
+  "하는지",
+  "그리고",
+  "또한",
+  "안녕하세요",
+  "안녕하십니까",
+  "민원",
+  "답변",
+  "작성",
+  "필요",
+  "합니다",
+  "있습니다",
+  "질문",
+  "사항",
+]);
+function terms(value: string) {
+  return [
+    ...new Set(
+      value
+        .normalize("NFKC")
+        .toLocaleLowerCase("ko-KR")
+        .replace(/[^0-9a-z가-힣\s]/g, " ")
+        .split(/\s+/)
+        .map((term) =>
+          term.length > 3
+            ? term.replace(/(?:으로|에서|에게|에|의|을|를|은|는|이|가)$/, "")
+            : term,
+        )
+        .filter((term) => term.length > 1 && !stopWords.has(term)),
+    ),
+  ].slice(0, 32);
+}
+function retrieval(doc: RoutingDocument) {
+  const meta = (doc.metadata?.retrieval || {}) as Record<string, unknown>;
+  return [
+    doc.title,
+    doc.category_major,
+    doc.category_middle,
+    doc.category_minor,
+    doc.question_summary,
+    meta.question_summary,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR");
+}
 
-const stopWords=new Set(['관련','대한','대해','문의','요청','여부','어떻게','무엇인지','알려','주세요','확인','경우','있는지','하는지','그리고','또한']);
-function terms(value:string){return [...new Set(value.normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/[^0-9a-z가-힣\s]/g,' ').split(/\s+/).filter(term=>term.length>1&&!stopWords.has(term)))].slice(0,18);}
-function retrieval(doc:Document){const meta=(doc.metadata?.retrieval||{})as Record<string,unknown>;return [doc.title,doc.category_major,doc.category_middle,doc.category_minor,doc.question_summary,doc.answer_summary,meta.question_summary,meta.answer_summary].filter(Boolean).join(' ').normalize('NFKC').toLocaleLowerCase('ko-KR');}
+export function rankDepartments(
+  currentDepartment: string,
+  query: string,
+  sources: Source[],
+  documents: RoutingDocument[],
+): RoutingCandidate[] {
+  const keywords = terms(query);
+  if (!keywords.length) return [];
+  const owner = new Map(
+    sources.map((source) => [source.id, source.owning_department]),
+  );
+  const corpus = [
+    ...new Map(documents.map((doc) => [doc.id, doc])).values(),
+  ].filter((doc) => owner.get(doc.source_file_id));
+  const texts = corpus.map((doc) => ({ doc, text: retrieval(doc) }));
+  const weights = new Map(
+    keywords.map((term) => [
+      term,
+      1 +
+        Math.log(
+          (corpus.length + 1) /
+            (1 + texts.filter((entry) => entry.text.includes(term)).length),
+        ),
+    ]),
+  );
+  const totalWeight = [...weights.values()].reduce((a, b) => a + b, 0);
+  const departments = new Map<
+    string,
+    { scores: number[]; matched: Set<string> }
+  >();
+  for (const { doc, text } of texts) {
+    const matched = keywords.filter((term) => text.includes(term));
+    if (matched.length < Math.min(2, keywords.length)) continue;
+    const score =
+      matched.reduce((sum, term) => sum + weights.get(term)!, 0) / totalWeight;
+    const department = owner.get(doc.source_file_id)!;
+    const bucket = departments.get(department) || {
+      scores: [],
+      matched: new Set<string>(),
+    };
+    bucket.scores.push(score);
+    matched.forEach((term) => bucket.matched.add(term));
+    departments.set(department, bucket);
+  }
+  // Never expose a department's signal from fewer than three distinct complaints.
+  // Mean of strongest five matches prevents larger departments winning by volume alone.
+  const ranked = [...departments]
+    .filter(([, bucket]) => bucket.scores.length >= 3)
+    .map(([department, bucket]) => {
+      const best = bucket.scores.sort((a, b) => b - a).slice(0, 5);
+      return {
+        department,
+        score: best.reduce((a, b) => a + b, 0) / best.length,
+        matchedKeywords: keywords
+          .filter((term) => bucket.matched.has(term))
+          .slice(0, 6),
+        sampleBand:
+          bucket.scores.length < 10
+            ? "3~9건"
+            : bucket.scores.length < 50
+              ? "10~49건"
+              : "50건 이상",
+        isCurrent: department === currentDepartment,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.score - a.score || a.department.localeCompare(b.department, "ko"),
+    );
+  const total = ranked.reduce((sum, item) => sum + item.score, 0);
+  if (!total) return [];
+  const shares = ranked.map((item) => (item.score / total) * 100);
+  const percentages = shares.map(Math.floor);
+  const order = shares
+    .map((share, index) => ({ index, remainder: share - Math.floor(share) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  const remaining = 100 - percentages.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < remaining; i++) percentages[order[i].index]++;
+  return ranked.map(({ score, ...item }, index) => ({
+    ...item,
+    likelihood: percentages[index],
+  }));
+}
 
-export async function analyzeDepartmentRouting(currentDepartment:string,issues:string[]):Promise<DepartmentRouting>{
-  const normalizedIssues=issues.map(issue=>issue.trim()).filter(Boolean).slice(0,4);
-  const empty={scope:'aggregate_only' as const,currentDepartment,issues:[],notice:'다른 부서의 원문과 답변은 표시하거나 답변 근거로 제공하지 않습니다.'};
-  if(!normalizedIssues.length)return empty;
-  try{
-    const sources=await serviceRequest<Source[]>('/rest/v1/source_files?select=id,owning_department&limit=5000');
-    if(!sources.length)return empty;
-    const sourceDepartment=new Map(sources.map(source=>[source.id,source.owning_department]));
-    const batches=Array.from({length:Math.ceil(sources.length/40)},(_,index)=>sources.slice(index*40,index*40+40));
-    const documents=(await Promise.all(batches.map(batch=>serviceRequest<Document[]>(`/rest/v1/rag_documents?source_file_id=in.(${batch.map(source=>source.id).join(',')})&document_type=in.(complaint,qna)&status=eq.ready&select=source_file_id,title,category_major,category_middle,category_minor,question_summary,answer_summary,metadata&limit=1000`)))).flat();
-    const routedIssues=normalizedIssues.map(issue=>{
-      const keywords=terms(issue);const departments=new Map<string,{score:number;matched:Set<string>;documents:number}>();
-      for(const document of documents){const department=sourceDepartment.get(document.source_file_id);if(!department)continue;const text=retrieval(document);const matched=keywords.filter(keyword=>text.includes(keyword));if(!matched.length)continue;const phrase=text.includes(issue.normalize('NFKC').toLocaleLowerCase('ko-KR'))?8:0;const score=matched.length*3+phrase+(matched.length===keywords.length&&keywords.length>1?4:0);const current=departments.get(department)||{score:0,matched:new Set<string>(),documents:0};current.score+=score;current.documents+=1;matched.forEach(keyword=>current.matched.add(keyword));departments.set(department,current);}
-      const ranked=[...departments.entries()].map(([department,value])=>({department,...value})).sort((a,b)=>b.score-a.score).slice(0,5);
-      const total=ranked.reduce((sum,item)=>sum+item.score,0)||1;
-      const candidates=ranked.map(item=>({department:item.department,likelihood:Math.max(1,Math.round(item.score/total*100)),matchedKeywords:[...item.matched].slice(0,5),matchedDocuments:item.documents,isCurrent:item.department===currentDepartment}));
-      const delta=100-candidates.reduce((sum,item)=>sum+item.likelihood,0);if(candidates[0])candidates[0].likelihood+=delta;
-      return{issue,candidates};
-    });
-    return{scope:'aggregate_only',currentDepartment,issues:routedIssues,notice:'참고용 가능성입니다. 다른 부서 자료는 서버 안에서 집계만 하며 원문·답변·개별 출처는 사용자나 외부 AI에 제공하지 않습니다.'};
-  }catch{return empty;}
+async function allRows<T>(path: string, signal?: AbortSignal): Promise<T[]> {
+  const result: T[] = [];
+  let offset = 0;
+  // Supabase may cap a page below the requested limit. Follow its actual size.
+  while (true) {
+    const page = await serviceRequest<T[]>(
+      `${path}&order=id.asc&limit=1000&offset=${offset}`,
+      { signal },
+    );
+    if (!page.length) return result;
+    result.push(...page);
+    offset += page.length;
+  }
+}
+export async function analyzeDepartmentRouting(
+  currentDepartment: string,
+  issues: string[],
+  signal?: AbortSignal,
+): Promise<DepartmentRouting> {
+  const queries = issues
+    .map((issue) => issue.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const base = {
+    scope: "aggregate_only" as const,
+    currentDepartment,
+    evaluatedAt: new Date().toISOString(),
+    candidates: [],
+    issues: [],
+    notice:
+      "전체 부서의 준비 완료 민원을 비교한 검색 점수 기반 상대 가능성입니다. 실제 소관 확률이나 확정 판정이 아닙니다. 부서별 일치 민원이 3건 미만이면 제외하며, 제외된 부서의 가능성이 0이라는 뜻은 아닙니다. 다른 부서 원문·답변·개별 출처는 공개하거나 외부 AI에 제공하지 않습니다.",
+  };
+  if (!queries.length) return { ...base, status: "no_signal" };
+  try {
+    const sources = await allRows<Source>(
+      "/rest/v1/source_files?select=id,owning_department",
+      signal,
+    );
+    const documents = await allRows<RoutingDocument>(
+      "/rest/v1/rag_documents?document_type=eq.complaint&status=eq.ready&select=id,source_file_id,title,category_major,category_middle,category_minor,question_summary,metadata",
+      signal,
+    );
+    const candidates = rankDepartments(
+      currentDepartment,
+      queries.join(" "),
+      sources,
+      documents,
+    );
+    return {
+      ...base,
+      status: candidates.length ? "ready" : "no_signal",
+      candidates,
+      issues:
+        queries.length > 1
+          ? queries.map((issue) => ({
+              issue,
+              candidates: rankDepartments(
+                currentDepartment,
+                issue,
+                sources,
+                documents,
+              ),
+            }))
+          : [],
+    };
+  } catch {
+    return { ...base, status: "unavailable" };
+  }
 }

@@ -1,3 +1,4 @@
+import { phoneNumberPattern, labeledNamePattern, nameBeforeTitlePattern, nameAfterTitlePattern } from "./privacy-patterns";
 import { vehicleNumberPattern } from "./vehicle-identifiers";
 
 export type SensitiveFinding = { type: string; value: string };
@@ -8,7 +9,7 @@ export function detectResidualSensitiveInfo(text: string) {
     ["차량번호", vehicleNumberPattern()],
     [
       "휴대전화",
-      /(?:\+?82[-.\s]?)?0(?:2|1[016789]|[3-6][1-5]|70)[-.\s]?\d{3,4}[-.\s]?\d{4}/g,
+      phoneNumberPattern(),
     ],
     ["이메일", /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi],
     ["주민등록번호", /\b\d{6}[-\s]?[1-8]\d{6}\b/g],
@@ -20,10 +21,10 @@ export function detectResidualSensitiveInfo(text: string) {
     ["주소", /(?:주소|소재지|거주지)\s*[:：]\s*[^\n]{5,80}/g],
     [
       "성명",
-      /(?:성명|이름|민원인|대표자|담당자|처리자|예금주)\s*[:：]?\s*[가-힣]{2,5}(?=\s|$|[,.)/])/g,
+      labeledNamePattern(),
     ],
-    ["직함 인접 성명", /[가-힣]{2,4}(?=\s+(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)(?=\s|$|[,.)]))/g],
-    ["직함 인접 성명", /(?:대표이사|대표|이사|상무|전무|부장|차장|과장|팀장|주무관|사무관|연구원|책임연구원|선임연구원|교수|변호사|노무사|회계사|담당자|처리자)\s*[:：]?\s*[가-힣]{2,4}/g],
+    ["직함 인접 성명", nameBeforeTitlePattern()],
+    ["직함 인접 성명", nameAfterTitlePattern()],
     ["법인명", /(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사|사단법인|재단법인|법무법인|의료법인|학교법인|농업회사법인)\s*[가-힣A-Za-z0-9&·_-]{2,30}|[가-힣A-Za-z0-9&·_-]{2,30}\s*(?:㈜|\(주\)|주식회사|유한회사|합자회사|합명회사)/g],
   ];
   for (const [type, pattern] of rules)

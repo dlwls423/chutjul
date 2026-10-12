@@ -22,7 +22,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     const bucket = source.storage_bucket || process.env.SUPABASE_STORAGE_BUCKET || "complaint-originals";
     const path = source.masked_storage_path || source.storage_path;
-    if (!base || !key || !path) throw new Error("PDF_STORAGE_NOT_CONFIGURED");
+    if (!path) return NextResponse.json({error:"?? ?? ??? ??? ???? ????. ??? ??? ???? ??? ??? ???."},{status:404});
+    if (!base || !key) throw new Error("PDF_STORAGE_NOT_CONFIGURED");
     const encodedPath = path.split("/").map(encodeURIComponent).join("/");
     const headers = { apikey: key, Authorization: `Bearer ${key}` };
     const signed = await fetch(`${base}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodedPath}`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 900 }), cache: "no-store" });

@@ -1,5 +1,9 @@
 # dependencies
 /node_modules
+**/node_modules/
+**/.pnpm-store/
+services/kordoc-local/.models/
+services/kordoc-local/.work/
 /.pnpm-store/
 /.pnp
 .pnp.*

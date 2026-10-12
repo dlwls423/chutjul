@@ -4,6 +4,7 @@ import './AuthGate.css';
 import './UserNav.css';
 import './DepartmentSelect.css';
 import {OFFICIAL_DEPARTMENTS} from '../lib/departments';
+import {prepareWorkspaceLogout} from '../lib/workspace-session';
 
 export type Profile={id:string;email:string;full_name:string;department:string;position:string;office_phone:string;role:'admin'|'user';approval_status:'pending'|'approved'|'rejected'};
 type AdminData={users:Array<Profile&{created_at:string}>;changes:Array<{id:string;user_id:string;current_department:string;requested_department:string;reason?:string;status:string;created_at:string}>};
@@ -21,7 +22,12 @@ export default function AuthGate({children}:{children:(profile:Profile)=>ReactNo
   useEffect(()=>{const closePanel=()=>setPanel(null);window.addEventListener('workspace-navigation',closePanel);return()=>window.removeEventListener('workspace-navigation',closePanel)},[]);
   useEffect(()=>{document.documentElement.classList.toggle('authorization-open',panel==='admin');return()=>document.documentElement.classList.remove('authorization-open')},[panel]);
   async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setMessage('처리 중…');const body=Object.fromEntries(new FormData(event.currentTarget));const r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:mode,...body})});const j=await r.json();if(!r.ok){setMessage(j.error||'요청에 실패했습니다.');return}if(mode==='signup'){setMode('login');setMessage('가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.')}else{setProfile(j.profile);setMessage('')}}
-  async function logout(){await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});setProfile(null);setPanel(null)}
+  async function logout(){
+    if(!await prepareWorkspaceLogout()){window.alert('작성 중인 작업 또는 저장되지 않은 변경사항이 있습니다. 작업 완료와 저장 상태를 확인한 뒤 로그아웃해 주세요.');return;}
+    const response=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})});
+    if(!response.ok){window.alert('로그아웃하지 못했습니다. 다시 시도해 주세요.');return;}
+    setProfile(null);setPanel(null);
+  }
   if(loading)return <div className="auth-loading">첫줄을 불러오는 중입니다…</div>;
   if(!profile)return <AuthForm mode={mode} setMode={setMode} submit={submit} message={message} departments={departments}/>;
   if(profile.approval_status!=='approved')return <Pending profile={profile} logout={logout}/>;

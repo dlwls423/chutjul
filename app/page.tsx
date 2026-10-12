@@ -1,5 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { localParserEnabled, readDocumentLocally, prepareLocalDocument } from "../lib/local-document";
+import { DOCUMENT_ACCEPT } from "../lib/prepared-document";
+import { useEffect, useRef, useState, useId } from "react";
+import DepartmentRoutingPanel from "../components/DepartmentRoutingPanel";
+import ComplaintWorkspace from "../components/ComplaintWorkspace";
+import type { WorkspaceSnapshot } from "../lib/complaint-workspace";
+import { prepareWorkspaceSnapshot } from "../lib/browser-workspace";
 import DocumentViewer from "../components/DocumentViewer";
 import "../components/DepartmentScope.css";
 import "../components/DataButtons.css";
@@ -136,8 +142,6 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   );
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([...WORKSPACE_DEPARTMENTS]);
   const [query, setQuery] = useState("허가 처리기간이 30일을 넘은 민원");
-  const [text, setText] = useState(complaint);
-  const [masked, setMasked] = useState(false);
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -216,12 +220,20 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
       try {
         let uploadFile=f;
         let documentType = "complaint";
-        if (f.name.toLowerCase().endsWith(".pdf") && hasGuideFileKeyword(f.name)) {
+        if (localParserEnabled()) {
+          documentType = localStorage.getItem("chutjul-document-kind") === "guide" ? "guide" : "complaint";
+          updateItem({message:"PC의 kordoc에서 문서·표·쪽 구조를 읽고 있습니다"});
+          const parsed = await readDocumentLocally(f);
+          const prepared = await prepareLocalDocument(f, documentType as "complaint"|"guide", parsed);
+          uploadFile = prepared.uploadFile;
+          if (prepared.privacy) form.append("browserPrivacy",JSON.stringify(prepared.privacy));
+        }
+        if (!localParserEnabled() && f.name.toLowerCase().endsWith(".pdf") && hasGuideFileKeyword(f.name)) {
           setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · 민원 양식 여부를 확인하고 있습니다.`);
           updateItem({ message: "민원 양식 여부 확인 중" });
           documentType = (await isComplaintPdfInBrowser(f)) ? "complaint" : "guide";
         }
-        if (f.name.toLowerCase().endsWith(".pdf") && documentType === "complaint") {
+        if (!localParserEnabled() && f.name.toLowerCase().endsWith(".pdf") && documentType === "complaint") {
           const prepared = await preparePdfInBrowser(f, (message, progress) => {
             setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · ${message}`);
             setUploadProgress(progress);
@@ -312,22 +324,10 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             <div className="head-avatar">{profile.full_name[0]}</div>
           </div>
         </header>
-        {view === "analyze" && (
-          <>
-            <div className="scope-notice">
-              🔒 민원 원문은 기기 안에서 처리하며, 외부 AI 전송자료는 담당자가 확인한 뒤에만 전송합니다.
-            </div>
-            <Analyze
-              text={text}
-              setText={setText}
-              masked={masked}
-              setMasked={setMasked}
-              flash={flash}
-              setModal={setModal}
-              department={currentDepartment}
-            />
-          </>
-        )}{" "}
+        <div hidden={view !== "analyze"}>
+          <div className="scope-notice">🔒 원문은 기기에서 처리합니다. 비식별 작성 상태는 개인 계정에 자동 저장됩니다.</div>
+          <ComplaintWorkspace key={profile.id} userId={profile.id} render={(initial,onSnapshot,onBusy)=><Analyze flash={flash} setModal={setModal} department={currentDepartment} departments={departmentOptions} initial={initial} onSnapshot={onSnapshot} onBusy={onBusy}/>} />
+        </div>
         {view === "search" && (
           <>
             <div className="scope-notice">
@@ -361,7 +361,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
         className="hidden-input"
         type="file"
         multiple={!retryId}
-        accept=".xlsx,.xls,.pdf"
+        accept={DOCUMENT_ACCEPT}
         onChange={(e) => upload(Array.from(e.target.files || []))}
       />
     </main>
@@ -420,47 +420,49 @@ function Sidebar({
   );
 }
 function Analyze({
-  text,
-  setText,
-  masked,
-  setMasked,
   flash,
   setModal,
-  department,
+  department, departments, initial, onSnapshot, onBusy,
 }: {
-  text: string;
-  setText: (s: string) => void;
-  masked: boolean;
-  setMasked: (b: boolean) => void;
+  departments:string[];
+  initial:WorkspaceSnapshot; onSnapshot:(snapshot:WorkspaceSnapshot)=>void; onBusy:(busy:boolean)=>void;
   flash: (s: string) => void;
   setModal: (s: string) => void;
   department: string;
 }) {
+  const [routingUploadRevision,setRoutingUploadRevision]=useState(0);
+  const editorId=useId(),directionId=useId();
+  const [text,setText]=useState("");
   const [busy, setBusy] = useState(false);
   const [analysisPhase,setAnalysisPhase]=useState<"idle"|"searching"|"generating">("idle");
   const analysisSeconds=useElapsed(analysisPhase!=="idle");
-  const [title, setTitle] = useState("");
-  const [editorText, setEditorText] = useState("");
-  const [answerDirection,setAnswerDirection]=useState("");
+  const [title, setTitle] = useState(initial.title);
+  const [editorText, setEditorText] = useState(initial.editorText);
+  const [answerDirection,setAnswerDirection]=useState(initial.answerDirection);
   const [sourceMode, setSourceMode] = useState<"direct"|"pdf">("direct");
   const [temporaryMeta, setTemporaryMeta] = useState<Record<string,string>>({});
   const pdfInputRef=useRef<HTMLInputElement>(null);
   const [results, setResults] = useState<SearchItem[]>([]);
   const [analysisError, setAnalysisError] = useState("");
-  const [analysisStatus, setAnalysisStatus] = useState("분석 전");
-  const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState(initial.draft?"저장된 초안 복원 · 담당자 검토 필요":initial.editorText?"작성 중인 질의 복원 · 수락 전 확인 필요":"분석 전");
+  const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(initial.editorText?editableTextToSummary(initial.editorText):null);
   const [summaryApproved, setSummaryApproved] = useState(false);
-  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[];departmentRouting?:{scope:string;currentDepartment:string;notice:string;issues:Array<{issue:string;candidates:Array<{department:string;likelihood:number;matchedKeywords:string[];matchedDocuments:number;isCurrent:boolean}>}>} } | null>(null);
-  const [draft, setDraft] = useState("");
-  const [visibleDraft,setVisibleDraft]=useState("");
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[]; } | null>(null);
+  const [draft, setDraft] = useState(initial.draft);
+  const [visibleDraft,setVisibleDraft]=useState(initial.draft);
+  const [dueDate,setDueDate]=useState(initial.dueDate);
   const [draftTyping,setDraftTyping]=useState(false);
   const [draftCopied,setDraftCopied]=useState(false);
   const typingTimerRef=useRef<ReturnType<typeof setInterval>|null>(null);
-  const [qualityChecks,setQualityChecks]=useState<Record<string,unknown>>({});
-  const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>([]);
+  const [qualityChecks,setQualityChecks]=useState<Record<string,unknown>>(initial.legalArticlesVerified===null?{}:{legal_articles_verified:initial.legalArticlesVerified});
+  const [selectedEvidence, setSelectedEvidence] = useState<{reference:string;reason:string;title:string;documentType:string;recordId:string}[]>(initial.evidence);
   const [manualEvidenceRefs, setManualEvidenceRefs] = useState<string[]>([]);
   const [selectedResult, setSelectedResult] = useState<SearchItem|null>(null);
   useEffect(()=>()=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);},[]);
+  useEffect(()=>{onBusy(busy);return()=>onBusy(false);},[busy,onBusy]);
+  useEffect(()=>{
+    onSnapshot(prepareWorkspaceSnapshot({version:1,title,editorText,answerDirection,draft,dueDate,evidence:selectedEvidence,legalArticlesVerified:typeof qualityChecks.legal_articles_verified==='boolean'?qualityChecks.legal_articles_verified:null}));
+  },[title,editorText,answerDirection,draft,dueDate,selectedEvidence,qualityChecks,onSnapshot]);
   function clearDraft(){if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraft('');setVisibleDraft('');setDraftTyping(false);}
   function revealDraft(value:string){
     if(typingTimerRef.current)clearInterval(typingTimerRef.current);
@@ -480,17 +482,23 @@ function Analyze({
     setAnalysisError("");setPreview(null);clearDraft();setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setSourceMode('pdf');setAnalysisStatus('기기에서 PDF 내용을 읽고 있습니다');
     try{
       if(file.size>15*1024*1024)throw new Error('15MB 이하 PDF를 사용해 주세요.');
-      const {extractText}=await import('unpdf');
-      const extracted=await extractText(new Uint8Array(await file.arrayBuffer()),{mergePages:true});
-      const parsed=parseEpeopleComplaint(cleanExtractedText(extracted.text),file.name);
+      let extractedText:string;
+      if (localParserEnabled()) extractedText=(await readDocumentLocally(file)).markdown.replace(/[|]/g,' ');
+      else {
+        if (!file.name.toLowerCase().endsWith('.pdf')) throw new Error('HWP·Office·이미지는 데이터 관리에서 PC 로컬 도우미를 활성화한 뒤 불러오세요.');
+        const {extractText}=await import('unpdf');
+        const extracted=await extractText(new Uint8Array(await file.arrayBuffer()),{mergePages:true});
+        extractedText=extracted.text;
+      }
+      const parsed=parseEpeopleComplaint(cleanExtractedText(extractedText),'새 민원') || {title:'새 민원',question:extractedText,application_number:'',receipt_number:'',received_at:'',application_at:'',handler_masked:'',department:''};
       if(!parsed||!parsed.question)throw new Error('민원 제목과 본문을 분리하지 못했습니다. 국민신문고 민원 상세 PDF인지 확인해 주세요.');
       const maskedQuestion=maskSensitiveText(parsed.question).value;
-      setTitle(parsed.title||file.name.replace(/\.pdf$/i,''));setText(maskedQuestion);setMasked(true);
+      setTitle(parsed.title||'새 민원');setText(maskedQuestion);
       setTemporaryMeta({file_name:file.name,application_number:parsed.application_number||'',receipt_number:parsed.receipt_number||'',received_at:parsed.received_at||parsed.application_at||'',handler:parsed.handler_masked||'',department:parsed.department||department});
-      setSafeSummary(null);setEditorText(maskedQuestion);setAnalysisStatus('PDF 민원 본문을 질문에 입력했습니다 · 내용을 보완한 뒤 수락해 주세요');
+      setSafeSummary(null);setEditorText(maskedQuestion);setRoutingUploadRevision(value=>value+1);setAnalysisStatus('PDF 민원 본문을 질문에 입력했습니다 · 내용을 보완한 뒤 수락해 주세요');
     }catch(error){const message=error instanceof Error?error.message:'PDF를 처리하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('PDF 처리 중단');flash(message);}finally{setBusy(false);if(pdfInputRef.current)pdfInputRef.current.value='';}
   }
-  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setAnswerDirection('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);clearDraft();setQualityChecks({});setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setMasked(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
+  function resetDirect(){setSourceMode('direct');setTitle('');setText('');setEditorText('');setAnswerDirection('');setTemporaryMeta({});setSafeSummary(null);setPreview(null);clearDraft();setQualityChecks({});setResults([]);setSelectedEvidence([]);setSummaryApproved(false);setAnalysisError('');setAnalysisStatus('질문을 작성해 주세요');}
   async function acceptSummary() {
     if (busy || !editorText.trim()) return;
     const maskedEditor=maskSensitiveText(editorText).value;
@@ -532,7 +540,7 @@ function Analyze({
   }
   async function saveDraftVersion(){
     if(busy||!draft)return;setBusy(true);
-    try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answerText:draft,title,applicationNumber:temporaryMeta.application_number||'',summary:safeSummary||{},evidence:selectedEvidence,qualityChecks})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
+    try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answerText:draft,title,applicationNumber:temporaryMeta.application_number||'',summary:safeSummary||editableTextToSummary(editorText),evidence:selectedEvidence,qualityChecks})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
   }
   async function copyDraft(){
     if(!draft)return;
@@ -540,17 +548,20 @@ function Analyze({
   }
   return (
     <div className="content">
+      <label className="workspace-heading">민원 탭 이름<input aria-label="민원 탭 이름" maxLength={500} value={title} onChange={e=>setTitle(e.target.value)}/></label>
+      {initial.draft&&!preview&&<p className="workspace-note">저장된 초안을 이어서 편집할 수 있습니다. AI로 다시 작성하려면 비식별 질의를 다시 확인하고 수락하세요. 근거는 현재 접근 권한으로 다시 검색합니다.</p>}
       <section className="input-card">
         <div className="title-row">
           <Title n="1" title="민원 질의 준비" sub="민원 PDF를 불러오거나 답변이 필요한 질문을 직접 작성하세요." />
-          <div className="analysis-source-tabs"><button className={sourceMode==='pdf'?'on':''} disabled={busy} onClick={()=>pdfInputRef.current?.click()}>PDF 불러오기</button><button className={sourceMode==='direct'?'on':''} disabled={busy} onClick={resetDirect}>직접 질문 작성</button></div>
-          <input ref={pdfInputRef} className="hidden-input" type="file" accept="application/pdf,.pdf" onChange={event=>{const file=event.target.files?.[0];if(file)void loadComplaintPdf(file);}} />
+          <div className="analysis-source-tabs"><button className={sourceMode==='pdf'?'on':''} disabled={busy} onClick={()=>pdfInputRef.current?.click()}>문서 불러오기</button><button className={sourceMode==='direct'?'on':''} disabled={busy} onClick={resetDirect}>직접 질문 작성</button></div>
+          <input ref={pdfInputRef} className="hidden-input" type="file" accept={DOCUMENT_ACCEPT} onChange={event=>{const file=event.target.files?.[0];if(file)void loadComplaintPdf(file);}} />
         </div>
         {sourceMode==='pdf'&&Object.keys(temporaryMeta).length>0&&<div className="temporary-intake"><div className="temporary-heading"><div><b>PDF에서 불러온 민원 정보</b><small>현재 화면에만 임시 보관되며 저장 버튼을 누르기 전에는 DB에 저장되지 않습니다.</small></div><span>임시 저장</span></div><div className="temporary-meta"><div><small>민원 제목</small><strong>{title||'—'}</strong></div><div><small>접수일시</small><strong>{temporaryMeta.received_at||'—'}</strong></div><div><small>담당자</small><strong>{temporaryMeta.handler||'—'}</strong></div><div><small>처리부서</small><strong>{temporaryMeta.department||'—'}</strong></div><div><small>신청번호</small><strong>{temporaryMeta.application_number||'—'}</strong></div><div><small>접수번호</small><strong>{temporaryMeta.receipt_number||'—'}</strong></div></div><details><summary>마스킹된 민원 본문 확인</summary><p>{maskSensitiveText(text).value}</p></details></div>}
-        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor="safe-question-editor">답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id="safe-question-editor" className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);clearDraft();setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
-        <div className="answer-direction"><div className="question-editor-head"><label htmlFor="answer-direction">답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>강조할 판단 기준, 설명 순서나 문체를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id="answer-direction" value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
+        <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor={editorId}>답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id={editorId} className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);clearDraft();setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
+        <div className="answer-direction"><div className="question-editor-head"><label htmlFor={directionId}>답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>강조할 판단 기준, 설명 순서나 문체를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id={directionId} value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
         <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
+      <DepartmentRoutingPanel query={editorText} department={department} departments={departments} uploadRevision={routingUploadRevision}/>
       {analysisPhase!=="idle"&&<AnalysisWaiting phase={analysisPhase} seconds={analysisSeconds}/>}
       <div className="analysis-head">
         <Title
@@ -614,12 +625,11 @@ function Analyze({
             </label>
             <label>
               답변 예정일
-              <input type="date" defaultValue="2026-08-28" />
+              <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} />
             </label>
           </aside>
         </div>
       </section>
-      {draft&&preview?.departmentRouting&&<section className="department-routing"><div className="routing-heading"><div><span>비공개 전체 자료 비교</span><h3>소관 부서 가능성</h3><p>현재 부서 밖의 자료는 내용이나 출처를 공개하지 않고 부서별 일치 신호만 집계합니다.</p></div><b>참고용</b></div><div className="routing-issues">{preview.departmentRouting.issues.map((entry,index)=>{const candidates=entry.candidates.filter(candidate=>!candidate.isCurrent).slice(0,3);return <article key={`${entry.issue}-${index}`}><h4><span>{index+1}</span>{entry.issue}</h4>{candidates.length?<div>{candidates.map(candidate=><div className="routing-candidate" key={candidate.department}><header><strong>{candidate.department}</strong><em>{candidate.likelihood}%</em></header><div className="routing-meter"><i style={{width:`${candidate.likelihood}%`}}/></div><p>{candidate.matchedKeywords.length?`일치 쟁점: ${candidate.matchedKeywords.join(', ')}`:'유사 업무 자료 확인'} · 관련 자료 {candidate.matchedDocuments}건</p></div>)}</div>:<p className="routing-empty">다른 부서에서 뚜렷한 소관 신호를 찾지 못했습니다.</p>}</article>})}</div><footer>※ {preview.departmentRouting.notice}</footer></section>}
       {selectedResult && <AnalysisResultDetail item={selectedResult} query={safeSummary?.purpose||title} close={()=>setSelectedResult(null)} />}
     </div>
   );
@@ -923,6 +933,9 @@ function Data({
   department: string;
 }) {
   const [entryMode, setEntryMode] = useState<"file" | "qna">("file");
+  const [kordocEnabled,setKordocEnabled]=useState(false);
+  const [documentKind,setDocumentKind]=useState("complaint");
+  useEffect(()=>{setKordocEnabled(localParserEnabled());setDocumentKind(localStorage.getItem("chutjul-document-kind") || "complaint");},[]);
   const [type, setType] = useState("전체");
   const [search, setSearch] = useState("");
   const [detailJob, setDetailJob] = useState<UploadJob | null>(null);
@@ -1110,8 +1123,10 @@ function Data({
           <div className="upload-icon">⇧</div>
           <h3>{uploading ? uploadStage || "단계별 처리 상태를 확인하고 있습니다…" : "새 자료 업로드"}</h3>
           {uploading && <div className="browser-progress"><i style={{width:`${uploadProgress}%`}}/><span>{uploadProgress}%</span></div>}
-          <p>PDF 파일을 여러 개 끌어놓거나 한 번에 선택하세요.</p>
-          <small>민원 원본은 저장하지 않으며 마스킹 PDF와 비식별 요약만 저장합니다.</small>
+          <p>PDF·HWP·HWPX·Office·이미지를 선택하세요. 확장 형식은 PC 로컬 도우미가 필요합니다.</p>
+          <label onClick={e=>e.stopPropagation()}><input type="checkbox" disabled={uploading} checked={kordocEnabled} onChange={e=>{setKordocEnabled(e.target.checked);localStorage.setItem("chutjul-kordoc-enabled",String(e.target.checked));}} /> PC 로컬 도우미 사용 · 원본은 같은 PC에서만 처리</label>
+          {kordocEnabled && <label onClick={e=>e.stopPropagation()}>자료 종류 <select disabled={uploading} value={documentKind} onChange={e=>{setDocumentKind(e.target.value);localStorage.setItem("chutjul-document-kind",e.target.value);}}><option value="complaint">과거 민원 질의·답변</option><option value="guide">안내서·기타 참고자료</option></select></label>}
+          <small>{kordocEnabled ? '원본은 같은 PC에서만 읽고, 비식별 본문·표·검색용 요약을 저장합니다. 도우미와 OCR 모델을 먼저 준비해 주세요.' : '민원 원본은 저장하지 않으며 마스킹 PDF와 비식별 요약만 저장합니다.'}</small>
           <button disabled={uploading}>{uploading ? "처리 중…" : "파일 선택"}</button>
         </section> : <div className="qna-entry" role="tabpanel">
           <div className="qna-entry-head"><div><span>Q&A 자료</span><h3>질문과 공식 답변 등록</h3><p>등록 후 현재 부서의 통합 검색과 답변 초안 근거로 활용됩니다.</p></div><div className="qna-safe-note">질문은 비식별 요약본으로 검색·AI 근거에 사용</div></div>

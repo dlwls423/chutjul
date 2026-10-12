@@ -6,7 +6,6 @@ import { detectResidualSensitiveInfo } from '../../../lib/privacy-check';
 import { maskBusinessIdentifiers, repairKnownOvermasking } from '../../../lib/business-identifiers';
 import { formatComplaintAnswer, type DraftSection } from '../../../lib/answer-template';
 import { complaintEvidencePayload } from '../../../lib/evidence-payload';
-import {analyzeDepartmentRouting} from '../../../lib/department-routing';
 export const runtime = 'edge';
 const encoder = new TextEncoder();
 const headers = { 'Cache-Control': 'no-store, private' };
@@ -143,7 +142,6 @@ export async function POST(request: Request) {
         if(/SUPABASE_400|PGRST|42P01|42703/.test(detail))throw new Error('EVIDENCE_SEARCH_SCHEMA_FAILED');
         throw new Error('EVIDENCE_SEARCH_FAILED');
       }
-      const departmentRouting=await analyzeDepartmentRouting(scopeDepartment,[...summary.legalQuestions,...summary.requestedAnswer]);
       const chosenCandidates=['complaint','qna','law','guide'].flatMap(type=>found.filter(item=>item.documentType===type).slice(0,type==='law'?5:4));
       const evidence=selectEvidenceWithinBudget(chosenCandidates.map(safeEvidence).filter((item):item is Evidence=>Boolean(item)));
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
@@ -153,7 +151,7 @@ export async function POST(request: Request) {
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: scopeDepartment, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
-      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)), departmentRouting }, { headers });
+      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
     if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature','selectedReferences'].includes(k))) throw new Error('INVALID_INPUT');
     if (typeof body.envelope !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature || '')) throw new Error('INVALID_INPUT');

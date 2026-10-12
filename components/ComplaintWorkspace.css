@@ -1,0 +1,80 @@
+.workspaces {
+  padding: 20px 28px;
+}
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.workspace-toolbar button,
+.workspace-tabs button {
+  border: 1px solid #dce4e1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.workspace-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.workspace-note {
+  font-size: 13px;
+  color: #64756d;
+  line-height: 1.7;
+}
+.workspace-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+.workspace-tabs > div {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid #dce4e1;
+  border-radius: 9px;
+}
+.workspace-tabs > div.active {
+  border-color: #187758;
+  background: #e9f5ef;
+}
+.workspace-tabs button {
+  border: 0;
+  background: transparent;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tabs > div.active button[role="tab"] {
+  font-weight: 700;
+  color: #176e51;
+}
+.workspaces [hidden] {
+  display: none !important;
+}
+.workspaces .content {
+  padding: 12px 0;
+}
+.workspace-heading {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin: 10px 0;
+}
+.workspace-heading input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccd9d2;
+  border-radius: 8px;
+}
+@media (max-width: 700px) {
+  .workspaces {
+    padding: 12px;
+  }
+  .workspace-toolbar {
+    gap: 6px;
+  }
+}

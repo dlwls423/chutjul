@@ -10,6 +10,7 @@ import { requireProfile } from "../../../lib/auth";
 import { hasGuideFileKeyword } from "../../../lib/document-classification";
 export const runtime = "edge";
 const allowed = ["pdf", "xlsx", "xls"];
+import { parseFile } from "../../../lib/ingestion";
 export async function GET(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
@@ -32,7 +33,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
-    if (!allowed.includes(ext))
+    const prepared = file.name.endsWith(".chutjul.json");
+    if (prepared) await parseFile(file);
+    if (!prepared && !allowed.includes(ext))
       return NextResponse.json(
         { error: "PDF, XLSX, XLS 파일만 업로드할 수 있습니다." },
         { status: 415 },
@@ -63,6 +66,10 @@ export async function POST(request: Request) {
       } catch {
         throw new Error("BROWSER_PRIVACY_INVALID");
       }
+    }
+    if (prepared) {
+      const parsed = await parseFile(file);
+      if (parsed.records[0].document_type !== documentType) throw new Error("PREPARED_DOCUMENT_INVALID");
     }
     const retryId = form.get("retryJobId");
     const result =
@@ -107,6 +114,7 @@ function fail(error: unknown) {
       { error: "OpenAI API 키가 아직 설정되지 않았습니다.", code: message },
       { status: 503 },
     );
+  if (message.startsWith("PREPARED_DOCUMENT_")) return NextResponse.json({error:"전송자료 형식 또는 개인정보 검사를 통과하지 못했습니다.",code:message},{status:422});
   if (message.startsWith("BROWSER_PRIVACY_"))
     return NextResponse.json(
       {
