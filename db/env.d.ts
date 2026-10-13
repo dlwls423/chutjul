@@ -1,5 +1,8 @@
-declare namespace Cloudflare {
-  interface Env {
-    DB: D1Database;
+export {};
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: import('@cloudflare/workers-types').D1Database;
+    }
   }
 }

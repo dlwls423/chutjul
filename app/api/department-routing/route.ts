@@ -1,10 +1,11 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import { NextResponse } from "next/server";
 import { requireProfile } from "../../../lib/auth";
 import { detectResidualSensitiveInfo } from "../../../lib/privacy-check";
 import { analyzeDepartmentRouting } from "../../../lib/department-routing";
 export const runtime = "edge";
 const headers = { "Cache-Control": "private, no-store" };
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin)
@@ -68,3 +69,5 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withApiSecurity(POSTHandler);

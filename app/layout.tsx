@@ -8,6 +8,7 @@ import '../components/Responsive.css';
 import '../components/DataResponsive.css';
 import '../components/Search.css';
 import '../components/TopbarRefinement.css';
+import '../components/FinalResponsive.css';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',

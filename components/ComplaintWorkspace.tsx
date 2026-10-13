@@ -291,6 +291,17 @@ export default function ComplaintWorkspace({
                   id={`tab-${row.id}`}
                   aria-controls={`pane-${row.id}`}
                   aria-selected={active === row.id}
+                  tabIndex={active === row.id ? 0 : -1}
+                  onKeyDown={(event) => {
+                    const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1
+                      : event.key === 'ArrowRight' ? (index + 1) % rows.length
+                      : event.key === 'ArrowLeft' ? (index + rows.length - 1) % rows.length : -1;
+                    if (next < 0) return;
+                    event.preventDefault();
+                    void queue.flushAll();
+                    setActive(rows[next].id);
+                    document.getElementById(`tab-${rows[next].id}`)?.focus();
+                  }}
                   onClick={() => {
                     void queue.flushAll();
                     setActive(row.id);

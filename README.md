@@ -28,6 +28,7 @@ pnpm dev
 - [문서 파싱 도우미](docs/kordoc-local-integration.md): 해당 PC에 별도 설치하고 OCR 모델을 준비하는 방법.
 - [민원 탭·계정 저장](docs/complaint-workspaces.md): DB 마이그레이션과 개인 계정 저장·복원 검증.
 - [전체 부서 소관 분석](docs/department-routing.md): 상대 가능성 계산, 개인정보 집계 기준과 검증 한계.
+- [보안·반응형 점검](docs/security-review-2026-10-13.md): 개인정보 경계, 접근 제어, 배포 전 확인사항.
 
 계정 저장에는 기존 마이그레이션에 이어 `supabase/migrations/202610120001_complaint_workspaces.sql` 적용이 필요합니다. DB가 이미 적용된 환경에서는 다시 적용할 필요가 없습니다. 실제 DB 변경 전 해당 환경의 기존 적용 상태를 확인하세요.
 
@@ -37,9 +38,13 @@ pnpm test:regression
 pnpm test:documents
 pnpm test:workspaces
 pnpm test:routing
+pnpm test:security
+pnpm exec tsc --noEmit
 pnpm build
 ```
 
 소관 분석의 퍼센트는 민원 유사도 점수에 따른 상대 추정치이며 확정된 통계적 확률이 아닙니다. 공개 테스트 계정은 개인 계정 저장과 기관 전체 부서 분석에 접근하지 못합니다.
 
 이 브랜치의 GitHub 업로드와 실제 사이트 배포는 별개입니다. 브라우저 종단 검증, 실제 개인 계정 복원, 운영 자료의 소관 정확도·성능 검증은 기능별 문서에 남은 작업으로 기록되어 있습니다.
+
+보안 보완 버전은 `supabase/migrations/202610130001_server_only_data_access.sql`도 검토·적용해야 합니다. 공개 테스트는 자료 변경을 허용하지 않습니다. 안내서·Excel·기타 자료 등록은 PC 로컬 도우미를 사용하며, 파일은 최대 30MiB입니다. 실제 Secret과 기존 원본은 이 작업에서 변경하지 않았습니다.

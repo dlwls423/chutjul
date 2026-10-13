@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import { NextResponse } from 'next/server';
 import { requireProfile, serviceRequest } from '../../../lib/auth';
 import { keywordSearch, type KeywordSearchResult } from '../../../lib/search';
@@ -114,7 +115,7 @@ async function key() {
   return crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 async function sign(data: string) { return Array.from(new Uint8Array(await crypto.subtle.sign('HMAC', await key(), encoder.encode(data))), b => b.toString(16).padStart(2, '0')).join(''); }
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const origin = request.headers.get('origin');
     if (origin && origin !== new URL(request.url).origin) return NextResponse.json({ error: '요청 출처를 확인할 수 없습니다.' }, { status: 403, headers });
@@ -135,7 +136,7 @@ export async function POST(request: Request) {
       try{
         found=await keywordSearch(scopeDepartment,query,{evidenceOnly:true});
       }catch(error){
-        console.error('[draft.prepare] department evidence lookup failed',error);
+        console.error('[draft.prepare] department evidence lookup failed');
         const detail=error instanceof Error?error.message:'';
         if(/SUPABASE_NOT_CONFIGURED/.test(detail))throw new Error('NOT_CONFIGURED');
         if(/SUPABASE_(401|403)|AUTH_(401|403)/.test(detail))throw new Error('EVIDENCE_SEARCH_AUTH_FAILED');
@@ -227,3 +228,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: messages[code] || '요청 검증에 실패하여 처리를 중단했습니다.' }, { status: code === 'AUTH_REQUIRED' ? 401 : 400, headers });
   }
 }
+
+export const POST = withApiSecurity(POSTHandler);

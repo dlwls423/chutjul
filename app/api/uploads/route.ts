@@ -1,6 +1,7 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import { NextResponse } from "next/server";
 import {
-  BrowserPrivacyResult,
+  type BrowserPrivacyResult,
   getConfig,
   listJobs,
   processUpload,
@@ -11,7 +12,7 @@ import { hasGuideFileKeyword } from "../../../lib/document-classification";
 export const runtime = "edge";
 const allowed = ["pdf", "xlsx", "xls"];
 import { parseFile } from "../../../lib/ingestion";
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
     const requested = new URL(request.url).searchParams.get("department");
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     return fail(error);
   }
 }
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
     const form = await request.formData();
@@ -34,15 +35,16 @@ export async function POST(request: Request) {
       );
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     const prepared = file.name.endsWith(".chutjul.json");
-    if (prepared) await parseFile(file);
+    if (!(prepared ? /^자료-[a-f0-9]{16}\.chutjul\.json$/ : /^민원-[a-f0-9]{16}\.pdf$/).test(file.name))
+      return NextResponse.json({error:'파일을 로컬에서 비식별 처리한 뒤 다시 선택해 주세요.'}, {status:422});
     if (!prepared && !allowed.includes(ext))
       return NextResponse.json(
         { error: "PDF, XLSX, XLS 파일만 업로드할 수 있습니다." },
         { status: 415 },
       );
-    if (file.size > 100 * 1024 * 1024)
+    if (file.size > 30 * 1024 * 1024)
       return NextResponse.json(
-        { error: "파일은 최대 100MB까지 업로드할 수 있습니다." },
+        { error: "파일은 최대 30MB까지 업로드할 수 있습니다." },
         { status: 413 },
       );
     const requestedDepartment = String(form.get("department") || "").trim();
@@ -58,6 +60,8 @@ export async function POST(request: Request) {
     const documentType = hasGuideFileKeyword(file.name)
       ? "guide"
       : String(form.get("documentType") || "complaint");
+    if (!prepared && (ext !== 'pdf' || documentType !== 'complaint'))
+      return NextResponse.json({error:'PC 로컬 도우미에서 비식별 처리한 자료를 등록해 주세요.'}, {status:422});
     const privacyRaw = form.get("browserPrivacy");
     let browserPrivacy: BrowserPrivacyResult | undefined;
     if (typeof privacyRaw === "string" && privacyRaw) {
@@ -153,3 +157,6 @@ function fail(error: unknown) {
     );
   return NextResponse.json({ error: message }, { status: 500 });
 }
+
+export const GET = withApiSecurity(GETHandler);
+export const POST = withApiSecurity(POSTHandler);

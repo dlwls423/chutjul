@@ -61,3 +61,11 @@ assert.ok(storedChunks.some(c=>c.content.includes('항목179')));
 assert.ok(storedChunks.some(c=>c.metadata.source_format==='hwpx' && c.metadata.section_index===3 && !c.metadata.page_number));
 assert.ok(storedChunks.every(c=>c.metadata.department==='테스트부서'));
 console.log('local document regression: privacy, schema, provenance, table retention, complaint split: ok');
+
+// A synthetic two-row workbook exercises the installed read-excel-file v9 API.
+const workbookBytes = Buffer.from("UEsDBBQAAAAIAKZQTV3y7KMrdgAAAIwAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbCWOSw7CMAxErxJlD65YsKiSbIAbcAErcj8iH6txpXJ7nLKceTP2uPeXqZkjp9K8XUR4BGhxoYztWpmKkqluGUXlNgNj/OBMcBuGO8RahIpcpN+wwT1pwj2JeR1qt7UWb7VuzeOf66+8Rea0RhTF0CkEB+eI8ANQSwMEFAAAAAgAplBNXRGTa5GVAAAA5wAAAA8AAAB4bC93b3JrYm9vay54bWyNj00OgkAMha8y6QEsuHBBgJUb1p5gHIozgflJW6PeXgKyd9W+99Lvpe0r83zPeTbvuCTpwKuWBlGcp2jllAulNZkyR6ur5AdKYbKjeCKNC56r6oLRhgQ7oeF/GHmagqNrds9ISXcI02I15CQ+FIG+3RrkN02ykTq4fZJ60uDAbPYwdlCD4SasCw9jDdi3eFzi8Vz/BVBLAwQUAAAACACmUE1dr8EIB44AAADxAAAAGgAAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzjY/NCsIwEIRfpeQBuq0HD9Lk5KVX8QVCum1Cmx92V9S3N3iQCh48DcPANzPDBTcrISf2oXDziFtirbxIOQGw8xgtt7lgqsmcKVqplhYo1q12QTh03RFoz1Bm2DObcdKKxqlXzdXSgqLVPdPKHlEY3tK3FV7jZ8F/qvM8B4fn7G4Rk/xYAJ8CBWaAr4fmBVBLAwQUAAAACACmUE1dRch1qLYAAADeAQAAGAAAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbIWRWw7CIBBFt9KwAKf2ww9DSXzsoCsgOAqRR4Ux1d1LG9NoIvZv5pIzOTPwIcRr0ohUPZz1qWWaqN8CJKXRybQKPfr8cg7RScptvEDqI8rTBDkLTV1vwEnjmeBTdpQkBY9hqGLL1jlVY7Fbs4paZrw1HjuKOTdJcBJkyCIHEhzGANQb2JeA2x0TmeB/MIcSI30aMH4TkBVnz2b2bAojuqcnjWRUVTReRv+5L9PlLeDj8jB/qXgBUEsBAhQAFAAAAAgAplBNXfLsoyt2AAAAjAAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAUAAAACACmUE1dEZNrkZUAAADnAAAADwAAAAAAAAAAAAAAgAGnAAAAeGwvd29ya2Jvb2sueG1sUEsBAhQAFAAAAAgAplBNXa/BCAeOAAAA8QAAABoAAAAAAAAAAAAAAIABaQEAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzUEsBAhQAFAAAAAgAplBNXUXIdai2AAAA3gEAABgAAAAAAAAAAAAAAIABLwIAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLBQYAAAAABAAEAAwBAAAbAwAAAAA=", "base64");
+const workbook = await parseFile(new File([workbookBytes], "synthetic.xlsx"));
+assert.equal(workbook.records.length, 1);
+assert.equal(workbook.records[0].question, "Synthetic question");
+assert.equal(workbook.records[0].answer, "Synthetic answer");
+console.log("Spreadsheet first-sheet regression: ok");

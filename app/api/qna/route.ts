@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import { NextResponse } from "next/server";
 import { requireProfile, serviceRequest } from "../../../lib/auth";
 import { processQnaPair } from "../../../lib/ingestion";
@@ -6,7 +7,7 @@ export const runtime = "edge";
 
 type SourceRow = { id: string };
 
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
     const requested = new URL(request.url).searchParams.get("department");
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const profile = await requireProfile({ approved: true });
     const body = await request.json() as Record<string, unknown>;
@@ -48,3 +49,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message.startsWith("DUPLICATE_FILE:") ? "동일한 Q&A가 이미 등록되어 있습니다." : message }, { status });
   }
 }
+
+export const GET = withApiSecurity(GETHandler);
+export const POST = withApiSecurity(POSTHandler);

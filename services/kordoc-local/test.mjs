@@ -19,6 +19,8 @@ test('real local HTTP → MCP → kordoc formats and access boundaries', async (
     const health=await fetch(`${base}/health`,{headers:{Origin:origin}}).then(r=>r.json());
     const headers={Origin:origin,'X-Chutjul-Token':health.token,'X-Document-Extension':'docx'};
     assert.equal((await fetch(`${base}/parse`,{method:'POST',headers:{...headers,'X-Chutjul-Token':'invalid'},body:'x'})).status,403);
+    assert.equal((await fetch(`${base}/parse`,{method:'POST',headers:{...headers,'X-Chutjul-Token':'µ'.repeat(64)},body:'x'})).status,403);
+    assert.equal((await fetch(`${base}/health`,{headers:{Origin:origin}})).status,200);
     assert.equal((await fetch(`${base}/parse`,{method:'POST',headers:{...headers,'X-Document-Extension':'exe'},body:'x'})).status,415);
     const zip=new JSZip(); zip.file('[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
     zip.file('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>SYNTHETIC DOCX 개인정보 파기 안내</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>항목</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>30일</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>');

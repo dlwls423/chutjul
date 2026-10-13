@@ -7,7 +7,7 @@ const LOCK_MS=900;
 export default function InteractionFeedback(){
   const[active,setActive]=useState(false);
   useEffect(()=>{
-    let barTimer:ReturnType<typeof setTimeout>|undefined;
+    let barTimer:number|undefined;
     const locked=new WeakSet<HTMLButtonElement>();
     function begin(button:HTMLButtonElement){
       if(locked.has(button))return false;

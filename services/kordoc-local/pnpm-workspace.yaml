@@ -5,3 +5,6 @@ packages:
 allowBuilds:
   onnxruntime-node: true
   protobufjs: true
+
+overrides:
+  "@modelcontextprotocol/sdk": "1.31.0"

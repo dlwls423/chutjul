@@ -16,15 +16,16 @@
     "test:documents": "node --experimental-strip-types scripts/regression-local-document.mjs",
     "test:workspaces": "node --experimental-strip-types scripts/regression-workspaces.mjs",
     "test:routing": "node --experimental-strip-types scripts/regression-department-routing.mjs",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test:security": "node --experimental-strip-types scripts/regression-security.mjs"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.84",
     "drizzle-orm": "0.45.2",
-    "next": "16.2.6",
+    "next": "16.3.8",
     "pdf-lib": "^1.17.1",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "read-excel-file": "^9.3.10",
     "unpdf": "^1.8.1"
   },
@@ -40,13 +41,13 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.8",
     "prettier": "^3.9.6",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.3",
-    "vite": "8.0.13",
+    "vite": "8.0.16",
     "wrangler": "4.92.0"
   },
   "type": "module"

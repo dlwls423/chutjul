@@ -1,4 +1,4 @@
-import readXlsxFile from "read-excel-file/universal";
+import { readSheet } from "read-excel-file/universal";
 import { extractText } from "unpdf";
 import {
   cleanExtractedText,
@@ -483,7 +483,7 @@ export async function parseFile(
   }
   if (lower.endsWith(".pdf")) throw new Error("PDF_SECURE_PIPELINE_REQUIRED");
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-    const rows = await readXlsxFile(await file.arrayBuffer());
+    const rows = await readSheet(await file.arrayBuffer(), 1);
     if (rows.length < 2) throw new Error("EMPTY_EXCEL");
     const headers = rows[0].map((v, i) =>
       normalizeHeader(String(v || `column_${i + 1}`)),
@@ -865,7 +865,7 @@ export async function persistRecords(
     rowNumber: number;
   }[] = [];
   for (let i = 0; i < args.records.length; i++) {
-    const row = {
+    const row: Row = {
       ...args.records[i],
       department: args.records[i].department || args.department,
     };
@@ -908,7 +908,7 @@ export async function persistRecords(
     const answerSummary = isQuestionAnswer
       ? summarizeAnswerForRetrieval(maskAnswerAttribution(p.row.answer || "").masked)
       : "";
-    const metadata = buildMetadata({
+    const metadata: ReturnType<typeof buildMetadata> & {retrieval?: Record<string, unknown>} = buildMetadata({
       row: p.row,
       file: args.file,
       fileId: args.fileId,
@@ -1025,7 +1025,7 @@ export async function persistRecords(
         ? buildKordocEvidence(JSON.parse(item.row.kordoc_chunks))
         : buildGuideEvidence(item.row.title || args.file.name, parseJsonArray(item.row.guide_pages), parseJsonArray(item.row.guide_toc)))
       : [];
-    const contents = guideChunks.length
+    const contents: {content: string; metadata?: Record<string, unknown>}[] = guideChunks.length
       ? guideChunks.map((chunk) => ({ content: chunk.content, metadata: { ...(item.row.parser && item.row.page_mode !== "layout" ? {section_index:chunk.pageNumber} : {page_number: chunk.pageNumber, page_end: chunk.pageEnd}), section_title: chunk.sectionTitle, section_path: chunk.sectionPath, chunk_kind: chunk.chunkKind, content_type: chunk.contentType, keywords: chunk.keywords, legal_references: chunk.legalReferences, indexing_version: 4, parser: item.row.parser || "legacy", source_format: item.row.source_format || "pdf", page_mode: item.row.page_mode || "layout" } }))
       : [context, ...chunkText(searchable)].filter((value, index, all) => value && all.indexOf(value) === index).map((content) => ({ content }));
     contents.forEach((entry, chunkIndex) =>
@@ -1206,7 +1206,7 @@ export async function processQnaPair(input: {
     return { jobId, ...result };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Q&A 저장 중 오류가 발생했습니다.";
-    await updateJob(config, jobId, "failed", { progress: 0, error_message: message });
+    await updateJob(config, jobId, "failed", { progress: 0, error_message: "PROCESSING_FAILED" });
     throw error;
   }
 }
@@ -1304,7 +1304,7 @@ async function runPipeline(
     if (isGuidePdf) {
       await updateJob(config, jobId, "extracting_qna", { progress: 48 });
       const guideTitle = file.name.replace(/\.pdf$/i, "");
-      let qnaPairs = [];
+      let qnaPairs: import("./guide-qna").GuideQna[] = [];
       try {
         qnaPairs = await extractGuideQnaWithAi({
           title: guideTitle,
@@ -1400,15 +1400,15 @@ async function runPipeline(
         method: "PATCH",
         body: JSON.stringify({
           redaction_status: "failed",
-          redaction_error: error instanceof Error ? error.message : "UNKNOWN",
+          redaction_error: "PROCESSING_FAILED",
         }),
       });
     } catch {}
     await updateJob(config, jobId, "failed", {
       error_code:
-        error instanceof Error ? error.message.split(":")[0] : "UNKNOWN",
+        "PROCESSING_FAILED",
       error_message:
-        error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.",
+        "PROCESSING_FAILED",
     });
     throw error;
   }

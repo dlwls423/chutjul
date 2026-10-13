@@ -65,7 +65,7 @@ export async function keywordSearch(department: string, rawQuery: string, option
   const [sources, legalResults] = await Promise.all([
     request<ScopedSource[]>(`/rest/v1/source_files?owning_department=eq.${encodeURIComponent(department)}&select=id&limit=1000`),
     searchCurrentLaws(rawQuery, department).catch((error) => {
-      console.error('[keywordSearch] legal evidence lookup failed', error);
+      console.error('[keywordSearch] legal evidence lookup failed');
       return [];
     }),
   ]);

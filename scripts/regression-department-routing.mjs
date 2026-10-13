@@ -127,7 +127,7 @@ assert.equal(routing.status, "ready");
 assert.equal(routing.candidates.length, 2);
 assert.ok(calls > 8);
 assert.ok(!JSON.stringify(routing).includes("SECRET_"));
-const request = (body, origin) =>
+const request = (body, origin = "http://localhost") =>
   new Request("http://localhost/api/department-routing", {
     method: "POST",
     headers: {

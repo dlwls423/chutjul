@@ -219,7 +219,7 @@ export default function DocumentViewer({
           </div>
           <div>
             <small>개인정보 탐지</small>
-            <strong>{job.pii_count || source.redaction_count || 0}건</strong>
+            <strong>{Number(job.pii_count || source.redaction_count || 0)}건</strong>
           </div>
           <div>
             <small>추출 문서</small>

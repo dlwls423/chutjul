@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../../../lib/api-security";
 import { NextResponse } from "next/server";
 import { extractText } from "unpdf";
 import { requireProfile, serviceRequest } from "../../../../../lib/auth";
@@ -9,7 +10,7 @@ function normalized(value: string) { return value.normalize("NFKC").toLocaleLowe
 function excerpt(text: string, terms: string[]) { const clean = text.replace(/\s+/g, " ").trim(); const lower = normalized(clean); let at = -1; for (const term of terms) { const found = lower.indexOf(term); if (found >= 0 && (at < 0 || found < at)) at = found; } if (at < 0) return clean.slice(0, 360); const start = Math.max(0, at - 130); const end = Math.min(clean.length, at + 300); return `${start ? "…" : ""}${clean.slice(start, end)}${end < clean.length ? "…" : ""}`; }
 function matchingSentences(text: string, terms: string[]) { const sentences = text.replace(/\r/g, "").split(/(?<=[.!?。])\s+|\n+/).map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean); const matches = sentences.filter((sentence) => terms.some((term) => normalized(sentence).includes(term))); return matches.length ? matches.slice(0, 4).join(" ") : excerpt(text, terms); }
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function GETHandler(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const profile = await requireProfile({ approved: true });
     const { id } = await params;
@@ -22,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     const bucket = source.storage_bucket || process.env.SUPABASE_STORAGE_BUCKET || "complaint-originals";
     const path = source.masked_storage_path || source.storage_path;
-    if (!path) return NextResponse.json({error:"?? ?? ??? ??? ???? ????. ??? ??? ???? ??? ??? ???."},{status:404});
+    if (!path) return NextResponse.json({error:"로컬에서 처리한 자료는 원본 PDF를 저장하지 않습니다. 추출 본문과 쪽 정보를 확인해 주세요."},{status:404});
     if (!base || !key) throw new Error("PDF_STORAGE_NOT_CONFIGURED");
     const encodedPath = path.split("/").map(encodeURIComponent).join("/");
     const headers = { apikey: key, Authorization: `Bearer ${key}` };
@@ -45,3 +46,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: message }, { status: message === "AUTH_REQUIRED" ? 401 : 500 });
   }
 }
+
+export const GET = withApiSecurity(GETHandler);

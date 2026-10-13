@@ -2,6 +2,14 @@
   "name": "chutjul-kordoc-local",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "setup:ocr": "node setup-models.mjs", "test": "node --test test.mjs" },
-  "dependencies": { "kordoc": "4.21.25", "@modelcontextprotocol/sdk": "1.29.0", "zod": "3.25.76" }
+  "scripts": {
+    "start": "node server.mjs",
+    "setup:ocr": "node setup-models.mjs",
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "kordoc": "4.21.25",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "zod": "3.25.76"
+  }
 }

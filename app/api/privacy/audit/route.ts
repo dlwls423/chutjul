@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../../lib/api-security";
 import { NextResponse } from "next/server";
 import { requireProfile, serviceRequest } from "../../../../lib/auth";
 import { maskAnswerAttribution, maskPersonalInfo } from "../../../../lib/ingestion";
@@ -34,7 +35,7 @@ async function embeddings(texts:string[]){
   const payload=await response.json() as {data:{embedding:number[]}[]};return payload.data.map(item=>item.embedding);
 }
 
-export async function POST(request:Request){
+async function POSTHandler(request:Request){
   try{
     await authorize(request);
     const body=await request.json().catch(()=>({})) as {after?:string;apply?:boolean};
@@ -68,3 +69,5 @@ export async function POST(request:Request){
     return NextResponse.json({checked:docs.length,changed:report.filter(item=>item.changed).length,missed:report.reduce((sum,item)=>sum+item.missed,0),overmasked:report.reduce((sum,item)=>sum+item.overmasked,0),residual:report.reduce((sum,item)=>sum+item.residual,0),items:report,nextAfter:docs.length===PAGE_SIZE?docs.at(-1)?.id:null,applied:body.apply===true});
   }catch(error){const message=error instanceof Error?error.message:"PRIVACY_AUDIT_FAILED";return NextResponse.json({error:message},{status:message==="AUTH_REQUIRED"?401:message==="ADMIN_REQUIRED"?403:500});}
 }
+
+export const POST = withApiSecurity(POSTHandler);

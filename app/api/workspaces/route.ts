@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import { NextResponse } from "next/server";
 import { requireProfile, serviceRequest } from "../../../lib/auth";
 import {
@@ -38,7 +39,7 @@ function fail(error: unknown) {
     },
   );
 }
-export async function GET() {
+async function GETHandler() {
   try {
     const p = await owner();
     const workspaces = await serviceRequest<ComplaintWorkspace[]>(
@@ -52,7 +53,7 @@ export async function GET() {
     return fail(e);
   }
 }
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   try {
     const p = await owner();
     if (Number(request.headers.get("content-length") || 0) > 300000)
@@ -85,3 +86,6 @@ export async function POST(request: Request) {
     return fail(e);
   }
 }
+
+export const GET = withApiSecurity(GETHandler);
+export const POST = withApiSecurity(POSTHandler);

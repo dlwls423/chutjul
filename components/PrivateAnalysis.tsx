@@ -1,7 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
 import { CONCEPTS, Concept, ISSUE_IDS } from '../lib/draft-policy';
-import { classifyLocally } from '../lib/local-draft';
 import { maskSensitiveText } from '../lib/browser-privacy';
 import './PrivateAnalysis.css';
 type Preview = { envelope:string;signature:string;payload:unknown;evidence:{reference:string;title:string;effectiveFrom:string;source:string;excerpt:string}[] };
@@ -22,7 +21,7 @@ export default function PrivateAnalysis() {
   async function post(body:unknown){const r=await fetch('/api/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error);return j;}
   function changeRaw(value:string){setRaw(value);setMasked('');setIds([]);invalidate();setStatus('입력 변경 · 재검토 필요');}
   async function loadPdf(file:File){await task(async()=>{invalidate();setStatus('브라우저에서 PDF 읽는 중');if(file.size>15*1024*1024)throw new Error('15MB 이하 PDF를 사용해 주세요.');const {extractText}=await import('unpdf');const text=await extractText(new Uint8Array(await file.arrayBuffer()),{mergePages:true});if(!text.text.trim())throw new Error('텍스트가 없는 PDF입니다. OCR된 파일이나 질의 내용을 붙여넣어 주세요.');if(text.text.length>10000)throw new Error('질의 부분만 10,000자 이내로 붙여넣어 주세요.');changeRaw(text.text);});}
-  async function analyze(){await task(async()=>{invalidate();setIds([]);setMasked(maskSensitiveText(raw).value);const result=await classifyLocally(raw,setStatus);setIds(result.ids);setMasked(result.masked);setStatus('로컬 정리 완료 · 사실과 쟁점을 검토해 주세요');});}
+  async function analyze(){await task(async()=>{invalidate();setIds([]);setMasked(maskSensitiveText(raw).value);setMasked(maskSensitiveText(raw).value);setStatus('로컬 정리 완료 · 사실과 쟁점을 검토해 주세요');});}
   async function prepare(){await task(async()=>{setPreview(null);setChecked(false);setDraft('');setStatus('일반화된 쟁점으로 공개 법령 조회 중');setPreview(await post({action:'prepare',ids}));setStatus('전송 대기 · 아래 자료를 확인해 주세요');});}
   async function generate(){if(!preview||!checked)return;await task(async()=>{setStatus('승인된 전송자료로 초안 작성 중');const result=await post({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});setDraft(result.draft);setChecked(false);setStatus('초안 작성 완료 · 담당자 검토 필요');});}
   return <div className="private-analysis">

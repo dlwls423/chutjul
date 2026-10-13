@@ -1,3 +1,4 @@
+import { withApiSecurity } from "../../../lib/api-security";
 import {NextResponse} from 'next/server';
 import {requireProfile,serviceRequest} from '../../../lib/auth';
 import {OFFICIAL_DEPARTMENTS} from '../../../lib/departments';
@@ -9,12 +10,12 @@ function isMissingTable(error:unknown){return /PGRST20[45]|42P01|departments.*sc
 function cleanName(value:unknown){return String(value||'').replace(/\s+/g,' ').trim();}
 async function activeRows(){return serviceRequest<DepartmentRow[]>('/rest/v1/departments?active=eq.true&select=id,name,sort_order,active&order=sort_order.asc,name.asc');}
 
-export async function GET(){
+async function GETHandler(){
   try{return NextResponse.json({departments:(await activeRows()).map(row=>row.name),writable:true});}
   catch(error){if(isMissingTable(error))return NextResponse.json({departments:[...OFFICIAL_DEPARTMENTS],writable:false});return fail(error);}
 }
 
-export async function POST(request:Request){
+async function POSTHandler(request:Request){
   try{
     const profile=await requireProfile({approved:true,admin:true});
     const name=cleanName((await request.json()as{name?:string}).name);
@@ -32,7 +33,7 @@ export async function POST(request:Request){
   }catch(error){if(isMissingTable(error))return NextResponse.json({error:'부서 관리 테이블을 먼저 생성해 주세요.'},{status:503});return fail(error);}
 }
 
-export async function DELETE(request:Request){
+async function DELETEHandler(request:Request){
   try{
     const profile=await requireProfile({approved:true,admin:true});
     const name=cleanName((await request.json()as{name?:string}).name);
@@ -52,3 +53,7 @@ export async function DELETE(request:Request){
 }
 
 function fail(error:unknown){const message=error instanceof Error?error.message:'부서 정보를 처리하지 못했습니다.';return NextResponse.json({error:message},{status:message==='AUTH_REQUIRED'?401:message==='ADMIN_REQUIRED'?403:500});}
+
+export const GET = withApiSecurity(GETHandler);
+export const POST = withApiSecurity(POSTHandler);
+export const DELETE = withApiSecurity(DELETEHandler);

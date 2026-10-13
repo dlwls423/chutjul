@@ -202,6 +202,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
     return () => clearInterval(timer);
   }, [view, currentDepartment]);
   async function upload(selected?: File[]) {
+    if (profile.id === 'public-test') { flash('공개 테스트는 조회 전용입니다. 자료 등록은 승인된 개인 계정에서 이용해 주세요.'); return; }
     if (!selected?.length) return;
     const uploadFiles = retryId ? selected.slice(0, 1) : selected;
     setUploading(true);
@@ -239,8 +240,11 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             setUploadProgress(progress);
             updateItem({ message });
           });
-          uploadFile=prepared.maskedPdf;
+          uploadFile=new File([prepared.maskedPdf], `민원-${prepared.privacy.originalHash.slice(0,16)}.pdf`, {type:'application/pdf'});
           form.append("browserPrivacy", JSON.stringify(prepared.privacy));
+        }
+        if (!localParserEnabled() && (!f.name.toLowerCase().endsWith('.pdf') || documentType !== 'complaint')) {
+          throw new Error('안내서·Excel·기타 자료는 PC 로컬 도우미를 켜서 개인정보를 제거한 뒤 등록해 주세요.');
         }
         setUploadStage(`${index + 1}/${uploadFiles.length} · ${f.name} · 안전한 자료를 저장하고 있습니다.`);
         setUploadProgress(84);
@@ -325,7 +329,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
           </div>
         </header>
         <div hidden={view !== "analyze"}>
-          <div className="scope-notice">🔒 원문은 기기에서 처리합니다. 비식별 작성 상태는 개인 계정에 자동 저장됩니다.</div>
+          <div className="scope-notice">🔒 {profile.id === 'public-test' ? '공개 테스트는 현재 접속에서만 작성할 수 있습니다. 실제 민원 원문을 입력하지 마세요.' : '원문은 기기에서 처리합니다. 비식별 작성 상태는 개인 계정에 자동 저장됩니다.'}</div>
           <ComplaintWorkspace key={profile.id} userId={profile.id} render={(initial,onSnapshot,onBusy)=><Analyze flash={flash} setModal={setModal} department={currentDepartment} departments={departmentOptions} initial={initial} onSnapshot={onSnapshot} onBusy={onBusy}/>} />
         </div>
         {view === "search" && (
@@ -540,7 +544,7 @@ function Analyze({
   }
   async function saveDraftVersion(){
     if(busy||!draft)return;setBusy(true);
-    try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answerText:draft,title,applicationNumber:temporaryMeta.application_number||'',summary:safeSummary||editableTextToSummary(editorText),evidence:selectedEvidence,qualityChecks})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
+    try{const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify((()=>{const safe=prepareWorkspaceSnapshot({version:1,title,editorText,answerDirection,draft,dueDate,evidence:selectedEvidence,legalArticlesVerified:typeof qualityChecks.legal_articles_verified==='boolean'?qualityChecks.legal_articles_verified:null});return {answerText:safe.draft,title:safe.title,summary:{editorText:safe.editorText},evidence:safe.evidence,qualityChecks:{legal_articles_verified:safe.legalArticlesVerified}};})())});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'저장하지 못했습니다.');flash(`답변과 사용 근거를 버전 ${payload.versionNumber}로 저장했습니다.`);}catch(error){flash(error instanceof Error?error.message:'저장하지 못했습니다.');}finally{setBusy(false);}
   }
   async function copyDraft(){
     if(!draft)return;
@@ -558,7 +562,7 @@ function Analyze({
         </div>
         {sourceMode==='pdf'&&Object.keys(temporaryMeta).length>0&&<div className="temporary-intake"><div className="temporary-heading"><div><b>PDF에서 불러온 민원 정보</b><small>현재 화면에만 임시 보관되며 저장 버튼을 누르기 전에는 DB에 저장되지 않습니다.</small></div><span>임시 저장</span></div><div className="temporary-meta"><div><small>민원 제목</small><strong>{title||'—'}</strong></div><div><small>접수일시</small><strong>{temporaryMeta.received_at||'—'}</strong></div><div><small>담당자</small><strong>{temporaryMeta.handler||'—'}</strong></div><div><small>처리부서</small><strong>{temporaryMeta.department||'—'}</strong></div><div><small>신청번호</small><strong>{temporaryMeta.application_number||'—'}</strong></div><div><small>접수번호</small><strong>{temporaryMeta.receipt_number||'—'}</strong></div></div><details><summary>마스킹된 민원 본문 확인</summary><p>{maskSensitiveText(text).value}</p></details></div>}
         <div className="question-editor-wrap"><div className="question-editor-head"><label htmlFor={editorId}>답변받을 질문</label><span>{editorText.length.toLocaleString()} / 10,000자</span></div><p>{sourceMode==='pdf'?'PDF에서 추출하고 개인정보를 가린 민원 본문입니다. 내용을 확인하고 필요하면 직접 보완하세요.':'개인정보 없이 법적 쟁점, 필요한 사실과 답변 요청사항을 작성하세요.'}</p><textarea id={editorId} className="safe-question-editor" value={editorText} maxLength={10000} disabled={busy||Boolean(preview)} onChange={event=>{setEditorText(event.target.value);setSafeSummary(null);setSummaryApproved(false);setPreview(null);clearDraft();setResults([]);}} placeholder={sourceMode==='pdf'?'PDF를 불러오면 비식별 민원 본문이 여기에 자동 입력됩니다.':'예: 공개 API만 사용하는 서비스가 개인정보 전송요구권 적용 대상인지, 관련 법령과 판단 기준을 알려주세요.'}/></div>
-        <div className="answer-direction"><div className="question-editor-head"><label htmlFor={directionId}>답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>강조할 판단 기준, 설명 순서나 문체를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id={directionId} value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
+        <div className="answer-direction"><div className="question-editor-head"><label htmlFor={directionId}>답변 방향성 <small>선택</small></label><span>{answerDirection.length.toLocaleString()} / 1,000자</span></div><p>기본 답변은 존댓말과 공문서 문체로 작성됩니다. 추가로 강조할 판단 기준이나 설명 순서를 적으세요. 개인정보는 입력하지 마세요.</p><textarea id={directionId} value={answerDirection} maxLength={1000} disabled={busy||Boolean(preview)} onChange={event=>setAnswerDirection(event.target.value)} placeholder="예: 결론을 먼저 제시하고, 법적 근거와 예외 사항을 순서대로 설명해 주세요. 단정하기 어려운 부분은 추가 확인사항으로 구분해 주세요." /></div>
         <div className="accept-panel"><label className="transmission-consent"><input type="checkbox" checked={summaryApproved} disabled={busy||Boolean(preview)||!editorText.trim()} onChange={event=>setSummaryApproved(event.target.checked)} /><span>편집한 질의에 개인정보가 없고 민원의 핵심을 올바르게 반영함을 확인했습니다. 수락하면 근거 검색과 초안 작성까지 자동으로 진행됩니다.</span></label><button className="analyze" disabled={busy||!summaryApproved||Boolean(preview)||!editorText.trim()} onClick={acceptSummary}>{preview?'질의 수락 완료':busy?analysisStatus:'질의 수락하고 답변 초안 작성'}</button></div>
       </section>
       <DepartmentRoutingPanel query={editorText} department={department} departments={departments} uploadRevision={routingUploadRevision}/>
@@ -725,7 +729,7 @@ function Search({
     const controller=new AbortController();searchAbortRef.current=controller;
     setLoading(true); setError(""); setSelected(null);
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(word)}&department=${encodeURIComponent(department)}`, { cache: "no-store",signal:controller.signal });
+      const response = await fetch("/api/search", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({q:word,department}), cache: "no-store",signal:controller.signal });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "검색 중 오류가 발생했습니다.");
       const nextResults=payload.results||[];searchResponseCache.set(cacheKey,{at:Date.now(),results:nextResults});
@@ -884,7 +888,7 @@ function Search({
   );
 }
 function ComplaintSearchMetadata({ item }: { item: SearchItem }) {
-  const values = { ...item.complaintMetadata, department: item.department || item.complaintMetadata.department };
+  const values: Record<string, unknown> = { ...item.complaintMetadata, department: item.department || item.complaintMetadata.department };
   const value = (key: string) => { const raw = values[key]; return Array.isArray(raw) ? raw.join(", ") : raw == null || raw === "" ? "—" : String(raw).replace("T", " ").replace(/\+00:00$/, ""); };
   const fields = (items: [string, string][]) => items.map(([key, label]) => <div key={key}><small>{label}</small><strong><Highlighted text={value(key)} terms={item.matchedTerms} /></strong></div>);
   return <section className="complaint-overview">
@@ -1409,6 +1413,6 @@ function Modal({ close }: { title: string; close: () => void }) {
   const[error,setError]=useState('');
   useEffect(()=>{let active=true;(async()=>{try{const response=await fetch('/api/answers',{cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'기록을 불러오지 못했습니다.');const versions=Array.isArray(payload.versions)?payload.versions:[];if(active){setItems(versions);setSelected(versions[0]||null);}}catch(reason){if(active)setError(reason instanceof Error?reason.message:'기록을 불러오지 못했습니다.');}finally{if(active)setLoading(false);}})();return()=>{active=false};},[]);
   const summary=selected?.approved_summary||{};
-  const inquiry=String(summary.inquirySummary||summary.summary||summary.question||'').trim();
+  const inquiry=String(summary.editorText||summary.inquirySummary||summary.summary||summary.question||'').trim();
   return <div className="modal-back" onMouseDown={close}><div className="modal history-modal" onMouseDown={(e)=>e.stopPropagation()}><button className="modal-x" onClick={close} aria-label="닫기">×</button><span className="eyebrow">SAVED ANSWERS</span><h2>답변 기록</h2><p className="history-help">직접 저장한 답변 초안과 사용 근거의 버전을 확인할 수 있습니다.</p>{loading?<div className="history-state">저장된 답변을 불러오는 중입니다…</div>:error?<div className="history-state error">{error}</div>:!items.length?<div className="history-state"><b>아직 저장된 답변이 없습니다.</b><span>답변 초안에서 ‘저장’을 누르면 여기에 버전별로 기록됩니다.</span></div>:<div className="history-layout"><div className="history-list" role="list">{items.map(item=><button type="button" role="listitem" className={selected?.id===item.id?'active':''} key={item.id} onClick={()=>setSelected(item)}><strong>{item.complaint_title||'제목 없는 민원'}</strong><span>{item.application_number||'신청번호 없음'} · 버전 {item.version_number||1}</span><small>{item.created_at?new Date(item.created_at).toLocaleString('ko-KR'):'저장일 없음'}</small></button>)}</div>{selected&&<div className="history-detail"><div className="modal-meta"><span>{selected.department||'부서 정보 없음'}</span><span>버전 {selected.version_number||1}</span>{selected.application_number&&<span>{selected.application_number}</span>}</div>{inquiry&&<section><h3>승인한 질의 요약</h3><p>{inquiry}</p></section>}<section><h3>저장된 답변</h3><p>{selected.answer_text||'저장된 답변 내용이 없습니다.'}</p></section></div>}</div>}<div className="modal-actions"><button onClick={close}>닫기</button></div></div></div>;
 }

@@ -13,10 +13,12 @@ const origins = new Set((process.env.CHUTJUL_ORIGINS || 'http://localhost:3000,h
 const token = randomBytes(32).toString('hex');
 const extensions = new Set(['pdf','hwp','hwpx','hml','xls','xlsx','docx','pptx','png','jpg','jpeg','webp']);
 let busy = false;
+let ready = false;
 function reply(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); }
 const server = createServer(async (req, res) => {
   const origin = req.headers.origin;
   if (req.headers.host !== '127.0.0.1:43127' || !origins.has(origin)) return reply(res, 403, { error: 'LOCAL_ORIGIN_DENIED' });
+  if (!ready) return reply(res, 503, { error: 'LOCAL_STARTING' });
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
@@ -27,7 +29,7 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === 'GET' && req.url === '/health') return reply(res, 200, { parser: 'kordoc@4.21.25', offline: true, token, extensions: [...extensions] });
   const supplied = String(req.headers['x-chutjul-token'] || '');
-  if (supplied.length !== token.length || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return reply(res, 403, { error: 'LOCAL_TOKEN_DENIED' });
+  if (!/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return reply(res, 403, { error: 'LOCAL_TOKEN_DENIED' });
   if (req.method !== 'POST' || req.url !== '/parse') return reply(res, 404, { error: 'NOT_FOUND' });
   const ext = String(req.headers['x-document-extension'] || '').toLowerCase();
   if (!extensions.has(ext)) return reply(res, 415, { error: 'UNSUPPORTED_FORMAT' });
@@ -56,7 +58,9 @@ const server = createServer(async (req, res) => {
   finally {
     await client?.close().catch(() => {});
     await transport?.close().catch(() => {});
-    if (dir && dirname(dir) === work) await rm(dir, { recursive: true, force: true });
+    try {
+      if (dir && dirname(dir) === work) await rm(dir, { recursive: true, force: true });
+    } catch { ready=false; status=503; output={error:'임시 원본을 정리하지 못했습니다. 로컬 도우미를 다시 실행해 주세요.'}; }
     busy = false;
     if (!res.destroyed) reply(res,status,output);
   }
@@ -69,5 +73,6 @@ server.listen(43127, '127.0.0.1', async () => {
     const stat=await lstat(path);
     if (/^parse-[A-Za-z0-9]+$/.test(name) && stat.isDirectory() && !stat.isSymbolicLink() && dirname(path)===work) await rm(path,{recursive:true,force:true});
   }
+  ready = true;
   console.log('첫줄 kordoc 로컬 도우미: 127.0.0.1:43127 (offline)');
 });

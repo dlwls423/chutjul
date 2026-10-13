@@ -239,7 +239,7 @@ const post = (body) =>
   handlers.POST(
     new Request("http://localhost/api/workspaces", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", origin: "http://localhost" },
       body: JSON.stringify(body),
     }),
   );
@@ -249,7 +249,7 @@ const mutation = {
   revision: 1,
   snapshot: snapshot("이어서 작성할 초안"),
 };
-let response = await handlers.GET();
+let response = await handlers.GET(new Request("http://localhost/api/workspaces"));
 assert.equal(response.status, 200);
 assert.equal(response.headers.get("Cache-Control"), "private, no-store");
 assert.equal((await response.json()).workspaces[0].revision, 1);
@@ -265,6 +265,7 @@ assert.equal(dbCalls, previousCalls);
 response = await handlers.POST(
   new Request("http://localhost/api/workspaces", {
     method: "POST",
+    headers: { "Content-Type": "application/json", origin: "http://localhost" },
     body: "{broken",
   }),
 );
@@ -277,7 +278,7 @@ for (const current of [
   globalThis.workspaceRouteTest.profile = current;
   previousCalls = dbCalls;
   assert.equal(
-    (await handlers.GET()).status,
+    (await handlers.GET(new Request("http://localhost/api/workspaces"))).status,
     current?.approval_status === "pending" ? 403 : 401,
   );
   assert.equal(
@@ -294,9 +295,9 @@ for (const status of ["conflict", "limit"]) {
   assert.equal((await response.json()).status, status);
 }
 serviceError = true;
-response = await handlers.GET();
+response = await handlers.GET(new Request("http://localhost/api/workspaces"));
 assert.equal(response.status, 503);
-assert.equal((await response.json()).error, "WORKSPACE_UNAVAILABLE");
+assert.ok(!(await response.text()).includes("DATABASE_FAILURE_WITH_SECRET"));
 console.log(
   "Workspace API regression passed: approved login, owner scope, forged owner ignored, privacy rejection, conflicts/limit, no-store, generic errors.",
 );

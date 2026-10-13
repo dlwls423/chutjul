@@ -297,7 +297,7 @@ async function createMaskedPdf(
     // Cleanup failures must never turn a successfully redacted PDF into an
     // upload failure. PDF.js versions expose cleanup through different paths.
     try {
-      await proxy.destroy();
+      await (proxy as typeof proxy & {destroy?: () => Promise<void>}).destroy?.();
     } catch {}
   }
 }
@@ -526,7 +526,7 @@ export async function preparePdfInBrowser(
   if (mask(second.value).value !== second.value)
     throw new Error("요약문 개인정보 재검사에 실패했습니다.");
   onProgress("개인정보가 제거된 PDF 사본을 생성하고 있습니다.", 82);
-  const maskedBytes = await createMaskedPdf(bytes.slice(0), onProgress);
+  const maskedBytes = new Uint8Array(await createMaskedPdf(bytes.slice(0), onProgress));
   const maskedPdf = new File([maskedBytes], file.name, {
     type: "application/pdf",
     lastModified: Date.now(),
