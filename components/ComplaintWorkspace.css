@@ -1,56 +1,290 @@
 .workspaces {
   padding: 20px 28px;
 }
-.workspace-toolbar {
+.workspaces .workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.workspace-title {
+  display: grid;
+  gap: 6px;
+}
+.workspace-eyebrow {
+  color: #8190a4;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+}
+.workspace-title strong {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #172b45;
+  font-size: 20px;
+  letter-spacing: -0.6px;
+}
+.workspace-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 4px 9px;
+  border: 1px solid #e2e7ef;
+  border-radius: 6px;
+  background: #fff;
+  color: #425774;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+.workspace-count > span {
+  color: #8b98a9;
+  font-weight: 400;
+}
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspaces .workspace-toolbar button {
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 14px;
+  color: #52637b;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.workspaces .workspace-toolbar button:hover {
+  background: #f8fafc;
+  border-color: #bcc9d9;
+}
+.workspaces .workspace-toolbar .workspace-add {
+  background: #193656;
+  border-color: #193656;
+  color: #fff;
+  box-shadow: 0 2px 4px #152b4512;
+}
+.workspaces .workspace-toolbar .workspace-add:hover {
+  background: #244969;
+  border-color: #244969;
+}
+.workspaces .workspace-toolbar .workspace-save {
+  border-color: transparent;
+  background: transparent;
+}
+.workspaces button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.workspace-tools {
+  position: relative;
+}
+.workspace-tools summary {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #52637b;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  list-style: none;
+}
+.workspace-tools summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-tools summary:hover,
+.workspace-tools[open] summary {
+  background: #edf2f8;
+}
+.workspace-tools-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 3px;
+  min-width: 210px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px #14294218;
+}
+.workspaces .workspace-tools-menu button {
+  text-align: left;
+  border: 0;
+  white-space: nowrap;
+}
+.workspaces .workspace-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 2px;
+  overflow-x: auto;
+  border-bottom: 1px solid #dbe3ed;
+  scrollbar-width: thin;
+  scroll-padding-inline: 8px;
+}
+.workspaces .workspace-tabs > .workspace-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-bottom: -1px;
+  padding: 0 8px 0 0;
+  border: 1px solid transparent;
+  border-bottom: 1px solid #dbe3ed;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  transition: background 0.15s;
+}
+.workspaces .workspace-tabs > .workspace-tab:hover {
+  background: #edf1f6;
+}
+.workspaces .workspace-tabs > .workspace-tab.active {
+  border-color: #dbe3ed;
+  border-bottom-color: #fff;
+  background: #fff;
+  box-shadow: 0 -2px 8px #1b345305;
+}
+.workspace-tab.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: #315c91;
+}
+.workspaces .workspace-tabs button[role="tab"] {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-}
-.workspace-toolbar button,
-.workspace-tabs button {
-  border: 1px solid #dce4e1;
-  border-radius: 8px;
-  background: #fff;
-  padding: 9px 12px;
+  min-height: 52px;
+  max-width: 270px;
+  padding: 12px 10px 12px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #758298;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
-.workspace-toolbar button:disabled {
-  opacity: 0.45;
-  cursor: default;
+.workspaces .workspace-tabs > .workspace-tab.active button[role="tab"] {
+  color: #193656;
+  font-weight: 650;
 }
-.workspace-note {
-  font-size: 13px;
-  color: #64756d;
-  line-height: 1.7;
-}
-.workspace-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 8px 0;
-}
-.workspace-tabs > div {
-  display: flex;
+.workspace-tab-number {
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
-  border: 1px solid #dce4e1;
-  border-radius: 9px;
+  width: 25px;
+  height: 25px;
+  background: #e9eef4;
+  border-radius: 6px;
+  color: #8593a6;
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
-.workspace-tabs > div.active {
-  border-color: #187758;
-  background: #e9f5ef;
+.workspace-tab.active .workspace-tab-number {
+  background: #edf2f9;
+  color: #315c91;
 }
-.workspace-tabs button {
-  border: 0;
-  background: transparent;
-  max-width: 220px;
+.workspace-tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workspace-tabs > div.active button[role="tab"] {
-  font-weight: 700;
-  color: #176e51;
+.workspace-tab-busy {
+  flex-shrink: 0;
+  color: #5d789b;
+  font-size: 10px;
+}
+.workspaces .workspace-tabs .workspace-tab-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9ca8b8;
+  font-size: 18px;
+  cursor: pointer;
+}
+.workspaces .workspace-tabs .workspace-tab-close:hover {
+  background: #fceeee;
+  color: #a04b4b;
+}
+.workspace-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid #dbe3ed;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+}
+.workspace-save-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #697b91;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.workspace-status-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #a0aec0;
+}
+.workspace-save-status.saved .workspace-status-dot {
+  background: #4d937e;
+}
+.workspace-save-status.error,
+.workspace-save-status.conflict,
+.workspace-save-status.limit {
+  color: #a15b3a;
+}
+.workspace-save-status.error .workspace-status-dot,
+.workspace-save-status.conflict .workspace-status-dot,
+.workspace-save-status.limit .workspace-status-dot {
+  background: #bd8158;
+}
+.workspace-save-status.saving .workspace-status-dot {
+  background: #5b7faa;
+}
+.workspace-status-row .workspace-note {
+  color: #8693a5;
+  font-size: 11px;
+  line-height: 1.6;
 }
 .workspaces [hidden] {
   display: none !important;
@@ -67,14 +301,45 @@
 .workspace-heading input {
   flex: 1;
   padding: 10px;
-  border: 1px solid #ccd9d2;
+  border: 1px solid #dce3ed;
   border-radius: 8px;
 }
-@media (max-width: 700px) {
-  .workspaces {
-    padding: 12px;
+@media (max-width: 760px) {
+  .workspaces .workspace-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding-bottom: 16px;
   }
-  .workspace-toolbar {
-    gap: 6px;
+  .workspace-title strong {
+    font-size: 18px;
+  }
+  .workspace-actions {
+    margin-left: auto;
+  }
+  .workspaces .workspace-toolbar button {
+    font-size: 12px;
+    min-height: 40px;
+    padding: 9px 12px;
+  }
+  .workspace-tools summary {
+    width: 40px;
+    height: 40px;
+  }
+  .workspaces .workspace-tabs button[role="tab"] {
+    max-width: min(240px, 60vw);
+    min-height: 50px;
+    padding-left: 12px;
+    gap: 8px;
+  }
+  .workspaces .workspace-tabs .workspace-tab-close {
+    min-height: 36px;
+    width: 32px;
+  }
+  .workspace-status-row {
+    padding: 10px 12px;
+  }
+  .workspace-status-row .workspace-note {
+    font-size: 10px;
   }
 }
