@@ -344,3 +344,145 @@
     font-size: 10px;
   }
 }
+
+/* Match the analysis cards: one quiet surface with soft blue selections. */
+.workspace-manager {
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #e0e6ee;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 3px 14px #172b4504;
+}
+.workspaces .workspace-manager .workspace-toolbar {
+  padding: 0 0 18px;
+  gap: 16px;
+}
+.workspace-manager .workspace-eyebrow {
+  color: #8a98aa;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.workspace-manager .workspace-title strong {
+  font-size: 18px;
+  gap: 10px;
+}
+.workspace-manager .workspace-count {
+  border: 0;
+  border-radius: 20px;
+  background: #f0f4f9;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.workspaces .workspace-manager .workspace-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c9d9ef;
+  border-radius: 9px;
+  background: #eff5ff;
+  color: #335f98;
+  box-shadow: none;
+}
+.workspaces .workspace-manager .workspace-add:hover {
+  background: #e2edfd;
+  border-color: #9cb9e1;
+}
+.workspace-manager > p[role="status"] {
+  margin: 0 0 14px;
+  color: #8391a3;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.workspace-manager > p[role="alert"] {
+  color: #a15b3a;
+  font-size: 12px;
+}
+.workspaces .workspace-manager .workspace-tabs {
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  background: #f6f8fb;
+}
+.workspaces .workspace-manager .workspace-tab {
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  padding-right: 6px;
+}
+.workspaces .workspace-manager .workspace-tab:hover {
+  background: #ebf0f7;
+}
+.workspaces .workspace-manager .workspace-tab.active {
+  border-color: #d5e1f2;
+  background: #fff;
+  box-shadow: 0 2px 5px #234f9910;
+}
+.workspace-manager .workspace-tab.active::before {
+  display: none;
+}
+.workspaces .workspace-manager .workspace-tabs button[role="tab"] {
+  min-height: 44px;
+  padding: 8px 8px 8px 12px;
+  gap: 9px;
+  font-size: 13px;
+}
+.workspaces .workspace-manager .workspace-tab.active button[role="tab"] {
+  color: #315d98;
+}
+.workspace-manager .workspace-tab-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #eaf0f7;
+  color: #8c9bb0;
+}
+.workspace-manager .workspace-tab.active .workspace-tab-number {
+  background: #eaf2ff;
+  color: #4775b3;
+}
+.workspace-manager .workspace-status-row {
+  padding: 12px 2px 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.workspace-manager .workspace-tools summary {
+  border-color: #e7ecf3;
+  background: #f8fafc;
+}
+.workspace-manager .workspace-save-status,
+.workspace-manager .workspace-note {
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .workspace-manager {
+    padding: 16px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+  .workspaces .workspace-manager .workspace-toolbar {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .workspace-manager .workspace-title strong {
+    font-size: 17px;
+  }
+  .workspace-manager .workspace-actions {
+    gap: 4px;
+  }
+  .workspaces .workspace-manager .workspace-tabs {
+    padding: 6px;
+    gap: 5px;
+  }
+  .workspace-manager .workspace-status-row {
+    gap: 4px;
+  }
+  .workspace-manager .workspace-status-row .workspace-note {
+    font-size: 10px;
+  }
+}

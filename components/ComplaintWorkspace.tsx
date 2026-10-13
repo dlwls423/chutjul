@@ -243,159 +243,158 @@ export default function ComplaintWorkspace({
   }
   return (
     <section className="workspaces" aria-label="민원별 작성 작업">
-      <div className="workspace-toolbar">
-        <div className="workspace-title">
-          <span className="workspace-eyebrow">MY WORKSPACE</span>
-          <strong>
-            민원 작성{" "}
-            <span className="workspace-count">
-              {rows.length}
-              <span> / 10</span>
-            </span>
-          </strong>
-        </div>
-        <div className="workspace-actions">
-          <button
-            className="workspace-add"
-            disabled={loading || !!error || rows.length >= 10}
-            onClick={() => void add()}
-          >
-            ＋ 새 민원
-          </button>
-          <button
-            className="workspace-save"
-            disabled={loading}
-            onClick={() => void queue.flushAll()}
-          >
-            지금 저장
-          </button>
-          <details className="workspace-tools">
-            <summary aria-label="작성 관리 메뉴">···</summary>
-            <div className="workspace-tools-menu">
-              <button disabled={!rows.length} onClick={backup}>
-                작성 내용 백업
-              </button>
-              <button
-                disabled={loading || busyIds.size > 0}
-                onClick={() => void reload()}
-              >
-                서버 상태 다시 불러오기
-              </button>
-            </div>
-          </details>
-        </div>
-      </div>
-      {userId === "public-test" && (
-        <p role="status">
-          공개 테스트: 탭은 현재 접속에서만 유지됩니다. 다른 접속에서 이어
-          작성하려면 개인 계정이 필요합니다.
-        </p>
-      )}
-      {error && (
-        <p role="alert">
-          {error} <button onClick={() => void reload()}>불러오기 재시도</button>
-        </p>
-      )}
-      {loading && <p role="status">작성 상태를 불러오는 중…</p>}
-      {
-        <>
-          <div role="tablist" aria-label="민원 탭" className="workspace-tabs">
-            {rows.map((row, index) => (
-              <div
-                key={row.id}
-                className={`workspace-tab ${active === row.id ? "active" : ""}`}
-              >
-                <button
-                  role="tab"
-                  id={`tab-${row.id}`}
-                  aria-controls={`pane-${row.id}`}
-                  aria-selected={active === row.id}
-                  tabIndex={active === row.id ? 0 : -1}
-                  title={
-                    queue.entries.get(row.id)?.snapshot.title ||
-                    `민원 ${index + 1}`
-                  }
-                  onKeyDown={(event) => {
-                    const next =
-                      event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? rows.length - 1
-                          : event.key === "ArrowRight"
-                            ? (index + 1) % rows.length
-                            : event.key === "ArrowLeft"
-                              ? (index + rows.length - 1) % rows.length
-                              : -1;
-                    if (next < 0) return;
-                    event.preventDefault();
-                    void queue.flushAll();
-                    setActive(rows[next].id);
-                    document.getElementById(`tab-${rows[next].id}`)?.focus();
-                  }}
-                  onClick={() => {
-                    void queue.flushAll();
-                    setActive(row.id);
-                  }}
-                >
-                  <span className="workspace-tab-number" aria-hidden="true">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span className="workspace-tab-label">
-                    {queue.entries.get(row.id)?.snapshot.title ||
-                      `민원 ${index + 1}`}
-                  </span>
-                  {busyIds.has(row.id) && (
-                    <span className="workspace-tab-busy">작업 중</span>
-                  )}
+      <div className="workspace-manager">
+        <div className="workspace-toolbar">
+          <div className="workspace-title">
+            <span className="workspace-eyebrow">민원별 작업 공간</span>
+            <strong>
+              민원 작성{" "}
+              <span className="workspace-count">
+                {rows.length}
+                <span> / 10</span>
+              </span>
+            </strong>
+          </div>
+          <div className="workspace-actions">
+            <button
+              className="workspace-add"
+              disabled={loading || !!error || rows.length >= 10}
+              onClick={() => void add()}
+            >
+              ＋ 새 민원
+            </button>
+            <button
+              className="workspace-save"
+              disabled={loading}
+              onClick={() => void queue.flushAll()}
+            >
+              지금 저장
+            </button>
+            <details className="workspace-tools">
+              <summary aria-label="작성 관리 메뉴">···</summary>
+              <div className="workspace-tools-menu">
+                <button disabled={!rows.length} onClick={backup}>
+                  작성 내용 백업
                 </button>
                 <button
-                  className="workspace-tab-close"
-                  disabled={loading || busyIds.has(row.id)}
-                  aria-label={`민원 ${index + 1} 삭제`}
-                  onClick={() => void remove(row.id)}
+                  disabled={loading || busyIds.size > 0}
+                  onClick={() => void reload()}
                 >
-                  ×
+                  서버 상태 다시 불러오기
                 </button>
               </div>
-            ))}
+            </details>
           </div>
-          <div className="workspace-status-row">
-            <p
-              role="status"
-              className={`workspace-save-status ${states[active] || "idle"}`}
-            >
-              <span className="workspace-status-dot" aria-hidden="true" />
-              {(userId === "public-test" && states[active] === "saved"
-                ? "테스트 세션에 유지됨"
-                : labels[states[active]]) || "새 민원을 추가해 주세요."}
-            </p>
-            <span
-              className="workspace-note"
-              title="비식별 질의·답변 방향·초안·선택 근거·답변 예정일을 자동 저장합니다. 원문과 파일 정보는 저장하지 않습니다. 접속 종료 전 저장 완료를 확인하세요."
-            >
-              원문은 저장하지 않습니다 · 저장 완료 후 접속을 종료하세요
-            </span>
-          </div>
-          {rows.map((row) => (
+        </div>
+        {userId === "public-test" && (
+          <p role="status">
+            공개 테스트: 탭은 현재 접속에서만 유지됩니다. 다른 접속에서 이어
+            작성하려면 개인 계정이 필요합니다.
+          </p>
+        )}
+        {error && (
+          <p role="alert">
+            {error}{" "}
+            <button onClick={() => void reload()}>불러오기 재시도</button>
+          </p>
+        )}
+        {loading && <p role="status">작성 상태를 불러오는 중…</p>}
+        <div role="tablist" aria-label="민원 탭" className="workspace-tabs">
+          {rows.map((row, index) => (
             <div
-              role="tabpanel"
-              id={`pane-${row.id}`}
-              aria-labelledby={`tab-${row.id}`}
-              hidden={row.id !== active}
-              key={`${generation}-${row.id}`}
-              inert={loading}
+              key={row.id}
+              className={`workspace-tab ${active === row.id ? "active" : ""}`}
             >
-              <Pane
-                row={row}
-                queue={queue}
-                render={render}
-                schedule={schedule}
-                onBusy={onBusy}
-              />
+              <button
+                role="tab"
+                id={`tab-${row.id}`}
+                aria-controls={`pane-${row.id}`}
+                aria-selected={active === row.id}
+                tabIndex={active === row.id ? 0 : -1}
+                title={
+                  queue.entries.get(row.id)?.snapshot.title ||
+                  `민원 ${index + 1}`
+                }
+                onKeyDown={(event) => {
+                  const next =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? rows.length - 1
+                        : event.key === "ArrowRight"
+                          ? (index + 1) % rows.length
+                          : event.key === "ArrowLeft"
+                            ? (index + rows.length - 1) % rows.length
+                            : -1;
+                  if (next < 0) return;
+                  event.preventDefault();
+                  void queue.flushAll();
+                  setActive(rows[next].id);
+                  document.getElementById(`tab-${rows[next].id}`)?.focus();
+                }}
+                onClick={() => {
+                  void queue.flushAll();
+                  setActive(row.id);
+                }}
+              >
+                <span className="workspace-tab-number" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <span className="workspace-tab-label">
+                  {queue.entries.get(row.id)?.snapshot.title ||
+                    `민원 ${index + 1}`}
+                </span>
+                {busyIds.has(row.id) && (
+                  <span className="workspace-tab-busy">작업 중</span>
+                )}
+              </button>
+              <button
+                className="workspace-tab-close"
+                disabled={loading || busyIds.has(row.id)}
+                aria-label={`민원 ${index + 1} 삭제`}
+                onClick={() => void remove(row.id)}
+              >
+                ×
+              </button>
             </div>
           ))}
-        </>
-      }
+        </div>
+        <div className="workspace-status-row">
+          <p
+            role="status"
+            className={`workspace-save-status ${states[active] || "idle"}`}
+          >
+            <span className="workspace-status-dot" aria-hidden="true" />
+            {(userId === "public-test" && states[active] === "saved"
+              ? "테스트 세션에 유지됨"
+              : labels[states[active]]) || "새 민원을 추가해 주세요."}
+          </p>
+          <span
+            className="workspace-note"
+            title="비식별 질의·답변 방향·초안·선택 근거·답변 예정일을 자동 저장합니다. 원문과 파일 정보는 저장하지 않습니다. 접속 종료 전 저장 완료를 확인하세요."
+          >
+            원문은 저장하지 않습니다 · 저장 완료 후 접속을 종료하세요
+          </span>
+        </div>
+      </div>
+      {rows.map((row) => (
+        <div
+          role="tabpanel"
+          id={`pane-${row.id}`}
+          aria-labelledby={`tab-${row.id}`}
+          hidden={row.id !== active}
+          key={`${generation}-${row.id}`}
+          inert={loading}
+        >
+          <Pane
+            row={row}
+            queue={queue}
+            render={render}
+            schedule={schedule}
+            onBusy={onBusy}
+          />
+        </div>
+      ))}
     </section>
   );
 }
