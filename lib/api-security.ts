@@ -72,7 +72,15 @@ export function withApiSecurity<T extends unknown[]>(handler: (request: Request,
         const mediaType = request.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
         if (bytes.length && mediaType !== (upload ? 'multipart/form-data' : 'application/json'))
           return rejected(request, 415, '지원하지 않는 요청 형식입니다.');
-        request = new Request(request, { body: bytes.length ? bytes : null });
+        // The original request body has been consumed by boundedBody().
+        // Reusing that Request as the constructor input throws for empty POSTs
+        // (including scheduled legal sync calls), so rebuild it from the URL.
+        request = new Request(request.url, {
+          method: request.method,
+          headers: request.headers,
+          body: bytes.length ? bytes : null,
+          redirect: request.redirect,
+        });
       }
       response = await handler(request, ...args);
       // 보호된 자동화 엔드포인트는 안전하게 정규화된 오류 코드만 반환하므로
