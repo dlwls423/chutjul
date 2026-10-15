@@ -2,7 +2,8 @@ name: Sync current privacy laws
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    # 매일 오전 9시 17분(KST, 00:17 UTC)에 한 번 실행합니다.
+    - cron: "17 0 * * *"
   workflow_dispatch:
 
 jobs:
@@ -14,7 +15,37 @@ jobs:
         env:
           LEGAL_SYNC_TOKEN: ${{ secrets.LEGAL_SYNC_TOKEN }}
         run: |
+          set -euo pipefail
           test -n "$LEGAL_SYNC_TOKEN"
-          curl --fail-with-body --retry 2 --max-time 720 \
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          http_status="$(curl --silent --show-error --retry 2 --retry-all-errors --max-time 720 \
+            --output "$response_file" --write-out "%{http_code}" \
             -X POST "https://chutjul-test.leeyejin113.chatgpt.site/api/legal/sync" \
-            -H "Authorization: Bearer $LEGAL_SYNC_TOKEN"
+            -H "Authorization: Bearer $LEGAL_SYNC_TOKEN")"
+
+          cat "$response_file"
+          echo
+
+          if [[ ! "$http_status" =~ ^2 ]]; then
+            reason="$(jq -r '.code // .error // "응답에 오류 사유가 없습니다."' "$response_file" 2>/dev/null || echo "응답 본문을 해석하지 못했습니다.")"
+            echo "::error title=법령 동기화 실패 (HTTP ${http_status})::${reason}"
+            {
+              echo "## 법령 동기화 실패"
+              echo
+              echo "- HTTP 상태: \`${http_status}\`"
+              echo "- 실패 이유: \`${reason}\`"
+              echo "- 대상: \`chutjul-test /api/legal/sync\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          {
+            echo "## 법령 동기화 완료"
+            echo
+            echo '```json'
+            cat "$response_file"
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

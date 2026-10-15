@@ -50,10 +50,11 @@ export function withApiSecurity<T extends unknown[]>(handler: (request: Request,
     let response: Response;
     try {
       const path = new URL(request.url).pathname;
+      let automation = false;
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         // These two endpoints validate the bearer token themselves. A cookie must
         // never let an invalid automation token fall back to a browser session.
-        const automation = ['/api/legal/sync', '/api/privacy/audit'].includes(path)
+        automation = ['/api/legal/sync', '/api/privacy/audit'].includes(path)
           && /^Bearer \S+$/i.test(request.headers.get('authorization') || '')
           && !request.headers.has('cookie');
         if (process.env.PUBLIC_TEST_MODE === 'true' && !automation && !['/api/draft', '/api/department-routing', '/api/search'].includes(path))
@@ -74,7 +75,9 @@ export function withApiSecurity<T extends unknown[]>(handler: (request: Request,
         request = new Request(request, { body: bytes.length ? bytes : null });
       }
       response = await handler(request, ...args);
-      if (response.status >= 500) return rejected(request, response.status, '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      // 보호된 자동화 엔드포인트는 안전하게 정규화된 오류 코드만 반환하므로
+      // GitHub Actions가 실패 원인을 기록할 수 있도록 응답을 유지합니다.
+      if (response.status >= 500 && !automation) return rejected(request, response.status, '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       if (response.status === 403) return rejected(request, 403, '이 요청을 수행할 권한이 없습니다.');
     } catch (error) {
       const tooLarge = error instanceof Error && error.message === 'REQUEST_TOO_LARGE';
