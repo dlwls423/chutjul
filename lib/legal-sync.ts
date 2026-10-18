@@ -3,6 +3,12 @@ import { fetchOfficialLawJson } from "./law-official-client";
 
 type LegalSource={id:string;canonical_name:string;source_target:"law"|"admrul";external_id:string|null;enabled:boolean};
 const RETIRED_LEGAL_SOURCES=["공공기관의 가명정보 결합 및 반출 등에 관한 고시"] as const;
+const REQUIRED_CREDIT_LEGAL_SOURCES=[
+  {canonical_name:"신용정보의 이용 및 보호에 관한 법률",source_target:"law",priority:90,related_departments:["마이데이터추진단"]},
+  {canonical_name:"신용정보의 이용 및 보호에 관한 법률 시행령",source_target:"law",priority:90,related_departments:["마이데이터추진단"]},
+  {canonical_name:"신용정보의 이용 및 보호에 관한 법률 시행규칙",source_target:"law",priority:85,related_departments:["마이데이터추진단"]},
+  {canonical_name:"신용정보업감독규정",source_target:"admrul",priority:85,related_departments:["마이데이터추진단"]},
+] as const;
 const text=(value:unknown)=>value==null?"":String(value).trim();
 const pick=(object:Record<string,unknown>,keys:string[])=>{for(const key of keys)if(text(object[key]))return text(object[key]);return"";};
 function objects(value:unknown,out:Record<string,unknown>[]=[]){if(Array.isArray(value))value.forEach(v=>objects(v,out));else if(value&&typeof value==="object"){out.push(value as Record<string,unknown>);Object.values(value).forEach(v=>objects(v,out));}return out;}
@@ -22,6 +28,7 @@ function provisions(payload:unknown){const rows:{provision_key:string;article_nu
 
 export async function syncLegalSources(){
   const oc=process.env.LAW_OPEN_API_OC;if(!oc)throw new Error("LAW_OPEN_API_OC_NOT_CONFIGURED");
+  await serviceRequest("/rest/v1/legal_sources?on_conflict=canonical_name",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(REQUIRED_CREDIT_LEGAL_SOURCES.map(source=>({...source,enabled:true,updated_at:new Date().toISOString()})))});
   for(const name of RETIRED_LEGAL_SOURCES)await serviceRequest(`/rest/v1/legal_sources?canonical_name=eq.${encodeURIComponent(name)}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});
   const sources=await serviceRequest<LegalSource[]>("/rest/v1/legal_sources?enabled=eq.true&select=id,canonical_name,source_target,external_id,enabled&order=priority.desc");
   const runRows=await serviceRequest<{id:string}[]>("/rest/v1/legal_sync_runs",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({status:"running"})});const runId=runRows[0]?.id;
