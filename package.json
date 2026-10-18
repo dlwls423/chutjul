@@ -16,6 +16,7 @@
     "test:documents": "node --experimental-strip-types scripts/regression-local-document.mjs",
     "test:workspaces": "node --experimental-strip-types scripts/regression-workspaces.mjs",
     "test:routing": "node --experimental-strip-types scripts/regression-department-routing.mjs",
+    "test:legal": "node --experimental-strip-types scripts/regression-legal-query.mjs",
     "db:generate": "drizzle-kit generate",
     "test:security": "node --experimental-strip-types scripts/regression-security.mjs"
   },

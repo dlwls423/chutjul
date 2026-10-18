@@ -41,6 +41,12 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".sites-runtime",
+    ".vinext",
+    "dist",
+    "output",
+    "tmp",
+    "work"
   ]
 }
