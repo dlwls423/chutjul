@@ -18,6 +18,7 @@ import { hasGuideFileKeyword } from "../lib/document-classification";
 import { editableTextToSummary, type SafeComplaintSummary } from "../lib/local-draft";
 import { cleanExtractedText, parseEpeopleComplaint } from "../lib/epeople-parser";
 import { WORKSPACE_DEPARTMENTS } from "../lib/departments";
+import OnboardingTour, { ONBOARDING_STORAGE_KEY } from "../components/OnboardingTour";
 type View = "analyze" | "search" | "data";
 type UploadJob = {
   id: string;
@@ -137,6 +138,7 @@ const files = [
 ];
 function WorkspaceApp({ profile }: { profile: Profile }) {
   const [view, setView] = useState<View>("analyze");
+  const [tourOpen,setTourOpen]=useState(false);
   const [currentDepartment, setCurrentDepartment] = useState(
     profile.department,
   );
@@ -154,6 +156,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   const [retryId, setRetryId] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const departmentStorageKey = `chutjul.currentDepartment.${profile.id}`;
+  useEffect(()=>{try{if(!window.localStorage.getItem(ONBOARDING_STORAGE_KEY))setTourOpen(true)}catch{}},[]);
   useEffect(() => {
     if (profile.role !== 'admin') return;
     try {
@@ -279,7 +282,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
   }
   return (
     <main className="app-shell">
-      <Sidebar view={view} setView={setView} />
+      <Sidebar view={view} setView={setView} onHelp={()=>setTourOpen(true)} />
       <section className="workspace">
         <header className="topbar">
           <div>
@@ -299,7 +302,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             </p>
           </div>
           <div className="head-actions">
-            <label className="department-scope">
+            <label className="department-scope" data-tour="department">
               <small>현재 부서</small>
               <select
                 value={currentDepartment}
@@ -318,6 +321,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
             {view === "analyze" ? (
               <button
                 className="history"
+                data-tour="answer-history"
                 onClick={() => setModal("최근 분석 기록")}
               >
                 <span aria-hidden="true">↶</span><b>답변 기록</b>
@@ -360,6 +364,7 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
       </section>
       {toast && <div className="toast">{toast}</div>}
       {modal && <Modal title={modal} close={() => setModal(null)} />}
+      <OnboardingTour open={tourOpen} onClose={()=>setTourOpen(false)} onNavigate={setView}/>
       <input
         ref={inputRef}
         className="hidden-input"
@@ -374,9 +379,11 @@ function WorkspaceApp({ profile }: { profile: Profile }) {
 function Sidebar({
   view,
   setView,
+  onHelp,
 }: {
   view: View;
   setView: (v: View) => void;
+  onHelp:()=>void;
 }) {
   function navigate(next: View) {
     window.dispatchEvent(new Event("workspace-navigation"));
@@ -398,6 +405,7 @@ function Sidebar({
         ).map((x) => (
           <button
             key={x[0]}
+            data-tour={`${x[0]}-nav`}
             className={"nav-item " + (view === x[0] ? "active" : "")}
             onClick={() => navigate(x[0])}
           >
@@ -407,7 +415,7 @@ function Sidebar({
         ))}
       </nav>
       <div className="sidebar-bottom">
-        <button className="nav-item">
+        <button className="nav-item" data-tour="help" onClick={onHelp}>
           <i>?</i>
           <span>도움말</span>
         </button>
