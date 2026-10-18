@@ -1,5 +1,6 @@
 import { serviceRequest } from "./auth";
 import { fetchOfficialLawJson } from "./law-official-client";
+import { normalizeOfficialArticleNumber } from "./legal-query";
 
 type LegalSource={id:string;canonical_name:string;source_target:"law"|"admrul";external_id:string|null;enabled:boolean};
 const RETIRED_LEGAL_SOURCES=["공공기관의 가명정보 결합 및 반출 등에 관한 고시"] as const;
@@ -24,7 +25,7 @@ function officialApiError(payload:unknown){
   return `LAW_API_RESULT_${code}${message?`:${message}`:""}`;
 }
 function findSearchItem(payload:unknown,name:string){const wanted=normalizedName(name);const candidates=objects(payload).map(o=>{const found=normalizedName(pick(o,["법령명한글","행정규칙명","법령명"]));if(!found)return null;const score=found===wanted?1000:found.startsWith(wanted)||wanted.startsWith(found)?500:found.includes(wanted)||wanted.includes(found)?200:0;return score?{o,score,delta:Math.abs(found.length-wanted.length)}:null;}).filter((v):v is NonNullable<typeof v>=>Boolean(v)).sort((a,b)=>b.score-a.score||a.delta-b.delta);return candidates[0]?.o||null;}
-function provisions(payload:unknown){const rows:{provision_key:string;article_number:string|null;heading:string|null;body:string;sequence:number}[]=[];for(const object of objects(payload)){const number=pick(object,["조문번호","조문가지번호","항번호","호번호","목번호"]);const heading=pick(object,["조문제목","조문명","항제목"]);const body=pick(object,["조문내용","항내용","호내용","목내용"]);if(!body||body.length<4)continue;const key=`${number||"본문"}-${rows.length+1}`;rows.push({provision_key:key,article_number:number?`제${number.replace(/^제|조$/g,"")}조`:null,heading:heading||null,body,sequence:rows.length});}if(!rows.length){const all=JSON.stringify(payload,null,2);rows.push({provision_key:"전체-1",article_number:null,heading:"전체 본문",body:all.slice(0,500000),sequence:0});}return rows;}
+function provisions(payload:unknown){const rows:{provision_key:string;article_number:string|null;heading:string|null;body:string;sequence:number}[]=[];for(const object of objects(payload)){const number=pick(object,["조문번호"]);const branch=pick(object,["조문가지번호"]);const articleNumber=normalizeOfficialArticleNumber(number,branch);const heading=pick(object,["조문제목","조문명","항제목"]);const body=pick(object,["조문내용","항내용","호내용","목내용"]);if(!body||body.length<4)continue;const key=`${articleNumber||"본문"}-${rows.length+1}`;rows.push({provision_key:key,article_number:articleNumber,heading:heading||null,body,sequence:rows.length});}if(!rows.length){const all=JSON.stringify(payload,null,2);rows.push({provision_key:"전체-1",article_number:null,heading:"전체 본문",body:all.slice(0,500000),sequence:0});}return rows;}
 
 export async function syncLegalSources(){
   const oc=process.env.LAW_OPEN_API_OC;if(!oc)throw new Error("LAW_OPEN_API_OC_NOT_CONFIGURED");

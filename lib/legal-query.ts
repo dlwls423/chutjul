@@ -27,3 +27,13 @@ export function legalSourceHintScore(rawQuery:string,canonicalName:string){
   }
   return 0;
 }
+
+export function normalizeOfficialArticleNumber(value:unknown,branchValue:unknown=''){
+  const match=String(value??'').trim().match(/^(?:제\s*)?0*(\d+)(?:\s*조)?$/);
+  if(!match)return null;
+  const base=Number(match[1]);
+  if(!Number.isInteger(base)||base<1)return null;
+  const branchMatch=String(branchValue??'').trim().match(/^0*(\d+)$/);
+  const branch=branchMatch?Number(branchMatch[1]):0;
+  return `제${base}조${branch>0?`의${branch}`:''}`;
+}
