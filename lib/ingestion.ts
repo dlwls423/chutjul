@@ -16,6 +16,7 @@ import { buildKordocEvidence } from "./guide-indexing";
 import { buildGuideEvidence } from "./guide-indexing";
 import { extractGuideQnaWithAi } from "./guide-qna";
 import { normalizeJsonRequestBody } from "./safe-json";
+import { configuredAiProvider, createEmbeddings } from "./ai-runtime";
 
 export type JobStatus =
   | "queued"
@@ -831,18 +832,10 @@ function parseJsonObject(value: string) {
   }
 }
 async function embed(config: Config, texts: string[]) {
-  if (!config.openaiKey) throw new Error("OPENAI_NOT_CONFIGURED");
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.openaiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model: config.embeddingModel, input: texts }),
-  });
-  if (!res.ok) throw new Error(`EMBEDDING_${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as { data: { embedding: number[] }[] };
-  return json.data.map((x) => x.embedding);
+  if (configuredAiProvider() === "openai" && !config.openaiKey) throw new Error("OPENAI_NOT_CONFIGURED");
+  // Current rag_chunks.embedding is vector(1536). Local models must match it
+  // until the experiment's dedicated 1024-dimensional migration is approved.
+  return createEmbeddings(texts, Number(process.env.RAG_EMBEDDING_DIMENSIONS || 1536));
 }
 export async function persistRecords(
   config: Config,

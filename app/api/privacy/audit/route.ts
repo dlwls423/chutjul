@@ -4,6 +4,7 @@ import { requireProfile, serviceRequest } from "../../../../lib/auth";
 import { maskAnswerAttribution, maskPersonalInfo } from "../../../../lib/ingestion";
 import { maskBusinessIdentifiers, removeBusinessIdentifiers, repairKnownOvermasking } from "../../../../lib/business-identifiers";
 import { detectResidualSensitiveInfo } from "../../../../lib/privacy-check";
+import { createEmbeddings } from "../../../../lib/ai-runtime";
 
 export const runtime = "edge";
 const PAGE_SIZE = 5;
@@ -29,10 +30,7 @@ function safeChunk(value:string){
 }
 async function embeddings(texts:string[]){
   if(!texts.length)return[];
-  const key=process.env.OPENAI_API_KEY;if(!key)throw new Error("OPENAI_NOT_CONFIGURED");
-  const response=await fetch("https://api.openai.com/v1/embeddings",{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model:process.env.OPENAI_EMBEDDING_MODEL||"text-embedding-3-small",input:texts})});
-  if(!response.ok)throw new Error(`EMBEDDING_${response.status}`);
-  const payload=await response.json() as {data:{embedding:number[]}[]};return payload.data.map(item=>item.embedding);
+  return createEmbeddings(texts,Number(process.env.RAG_EMBEDDING_DIMENSIONS||1536));
 }
 
 async function POSTHandler(request:Request){

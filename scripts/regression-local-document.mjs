@@ -1,6 +1,7 @@
 import { register } from 'node:module';
 import assert from 'node:assert/strict';
 register('./helpers/typescript-loader.mjs', import.meta.url);
+process.env.RAG_EMBEDDING_DIMENSIONS='3';
 globalThis.fetch = async () => {throw new Error('NETWORK_FORBIDDEN');};
 const { prepareLocalDocument }=await import('../lib/local-document.ts');
 const { validatePreparedDocument }=await import('../lib/prepared-document.ts');

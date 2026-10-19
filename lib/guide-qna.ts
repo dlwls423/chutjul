@@ -37,18 +37,13 @@ export function selectGuideQnaCandidatePages(sourcePages: string[], limit = 72):
   return pages.filter((page) => selected.has(page.pageNumber)).slice(0, limit);
 }
 
-function responseText(payload: unknown) {
-  const output = (payload as { output?: Array<{ content?: Array<{ text?: string }> }> })?.output || [];
-  return output.flatMap((item) => item.content || []).map((item) => item.text || "").join("").trim();
-}
-
 export async function extractGuideQnaWithAi(args: {
   title: string;
   sourcePages: string[];
   apiKey?: string;
   model?: string;
 }) {
-  if (!args.apiKey) return [] as GuideQna[];
+  if (!args.apiKey && process.env.AI_PROVIDER !== "ollama") return [] as GuideQna[];
   const candidates = selectGuideQnaCandidatePages(args.sourcePages);
   const extracted: GuideQna[] = [];
   for (let offset = 0; offset < candidates.length; offset += 6) {
@@ -61,19 +56,15 @@ export async function extractGuideQnaWithAi(args: {
         required: ["question", "answer", "pageNumber", "heading", "confidence"] } } }, required: ["items"],
     };
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: args.model || "gpt-4.1-mini", store: false,
-          instructions: "공개 안내서에서 독립적으로 재사용할 수 있는 질의-답변 쌍만 추출한다. Q1/A1 표기만 보지 말고 페이지 제목, 절 제목, 표의 열 제목, 사례·문의·해설 구조와 문맥을 종합해 판단한다. 일반 설명문을 억지로 질문으로 바꾸지 않는다. 질문과 답변은 원문의 문장을 그대로 유지하고 요약하거나 새 사실을 만들지 않는다. 질문과 답변이 모두 명시적으로 존재할 때만 포함한다. 여러 페이지에 이어진 답변은 하나로 합칠 수 있다. pageNumber는 질문이 시작된 [[PAGE n]] 번호다. heading에는 가장 가까운 페이지 또는 절 제목을 적는다. 애매하면 제외한다.",
-          input: `자료명: ${args.title}\n\n${source}`,
-          text: { format: { type: "json_schema", name: "guide_qna_pairs", strict: true, schema } },
-          max_output_tokens: 5000,
-        }),
+      const outputText = await generateStructuredText({
+        instructions: "공개 안내서에서 독립적으로 재사용할 수 있는 질의-답변 쌍만 추출한다. Q1/A1 표기만 보지 말고 페이지 제목, 절 제목, 표의 열 제목, 사례·문의·해설 구조와 문맥을 종합해 판단한다. 일반 설명문을 억지로 질문으로 바꾸지 않는다. 질문과 답변은 원문의 문장을 그대로 유지하고 요약하거나 새 사실을 만들지 않는다. 질문과 답변이 모두 명시적으로 존재할 때만 포함한다. 여러 페이지에 이어진 답변은 하나로 합칠 수 있다. pageNumber는 질문이 시작된 [[PAGE n]] 번호다. heading에는 가장 가까운 페이지 또는 절 제목을 적는다. 애매하면 제외한다.",
+        input: `자료명: ${args.title}\n\n${source}`,
+        schema,
+        schemaName: "guide_qna_pairs",
+        maxOutputTokens: 5000,
+        openaiModel: args.model || "gpt-4.1-mini",
       });
-      if (!response.ok) continue;
-      const parsed = JSON.parse(responseText(await response.json())) as { items?: GuideQna[] };
+      const parsed = JSON.parse(outputText) as { items?: GuideQna[] };
       const batchText = normalized(batch.map((page) => page.text).join("\n"));
       for (const item of parsed.items || []) {
         const page = batch.find((candidate) => candidate.pageNumber === item.pageNumber);
@@ -88,3 +79,5 @@ export async function extractGuideQnaWithAi(args: {
   const seen = new Set<string>();
   return extracted.filter((item) => { const key = normalized(item.question); if (seen.has(key)) return false; seen.add(key); return true; }).slice(0, 300);
 }
+import { generateStructuredText } from "./ai-runtime";
+

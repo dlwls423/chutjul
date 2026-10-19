@@ -459,7 +459,7 @@ function Analyze({
   const [analysisStatus, setAnalysisStatus] = useState(initial.draft?"저장된 초안 복원 · 담당자 검토 필요":initial.editorText?"작성 중인 질의 복원 · 수락 전 확인 필요":"분석 전");
   const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(initial.editorText?editableTextToSummary(initial.editorText):null);
   const [summaryApproved, setSummaryApproved] = useState(false);
-  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[]; } | null>(null);
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; aiProvider?:"openai"|"ollama"; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[]; } | null>(null);
   const [draft, setDraft] = useState(initial.draft);
   const [visibleDraft,setVisibleDraft]=useState(initial.draft);
   const [dueDate,setDueDate]=useState(initial.dueDate);
@@ -620,7 +620,7 @@ function Analyze({
         <div className="draft-body">
           {draft ? <textarea className={`editor draft-editor${draftTyping?' is-typing':''}`} aria-label="답변 초안" value={visibleDraft} onChange={event=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraftTyping(false);setDraft(event.target.value);setVisibleDraft(event.target.value);}} /> : preview ? <div className="editor transmission-review">
             <div className="review-heading"><b>승인된 비식별 자료</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
-            <details open><summary>실제 OpenAI 전송자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
+            <details open><summary>{preview.aiProvider==='ollama'?'로컬 AI 입력자료 전체 보기':'실제 OpenAI 전송자료 전체 보기'}</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
             <p>처리가 중단된 경우에만 아래 버튼으로 이어서 진행할 수 있습니다.</p><button className="analyze" disabled={busy} onClick={retryDraft}>{busy?analysisStatus:'초안 작성 다시 시도'}</button>
           </div> : <div className="editor draft-empty"><b>비식별 요약을 확인하고 수락해 주세요.</b><p>수락하면 관련 자료 검색, 근거 선별, 답변 초안 작성이 자동으로 이어집니다.</p></div>}
           <aside className="evidence">

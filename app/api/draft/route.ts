@@ -7,6 +7,7 @@ import { detectResidualSensitiveInfo } from '../../../lib/privacy-check';
 import { maskBusinessIdentifiers, repairKnownOvermasking } from '../../../lib/business-identifiers';
 import { formatComplaintAnswer, type DraftSection } from '../../../lib/answer-template';
 import { complaintEvidencePayload } from '../../../lib/evidence-payload';
+import { configuredAiProvider, generateStructuredText } from '../../../lib/ai-runtime';
 export const runtime = 'edge';
 const encoder = new TextEncoder();
 const headers = { 'Cache-Control': 'no-store, private' };
@@ -152,7 +153,7 @@ async function POSTHandler(request: Request) {
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: scopeDepartment, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
-      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
+      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), aiProvider:configuredAiProvider(), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
     if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature','selectedReferences'].includes(k))) throw new Error('INVALID_INPUT');
     if (typeof body.envelope !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature || '')) throw new Error('INVALID_INPUT');
@@ -174,12 +175,19 @@ async function POSTHandler(request: Request) {
       parsedPayload.text.format.schema.properties.selectedEvidence.items.properties.reference.enum=requested;
       outboundPayload=JSON.stringify(parsedPayload);
     }
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('NOT_CONFIGURED');
-    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: outboundPayload, signal: AbortSignal.timeout(60000) });
-    if (!response.ok) throw new Error('GENERATION_FAILED');
-    const result = await response.json();
-    const outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
+    let outputText='';
+    if(configuredAiProvider()==='ollama'){
+      const parsedPayload=JSON.parse(outboundPayload) as {instructions:string;input:string;text:{format:{name:string;schema:Record<string,unknown>}};max_output_tokens?:number};
+      try{outputText=await generateStructuredText({instructions:parsedPayload.instructions,input:parsedPayload.input,schema:parsedPayload.text.format.schema,schemaName:parsedPayload.text.format.name,maxOutputTokens:parsedPayload.max_output_tokens});}
+      catch(error){console.error('[draft.generate] local model failed',error instanceof Error?error.message:'unknown');throw new Error('GENERATION_FAILED');}
+    }else{
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) throw new Error('NOT_CONFIGURED');
+      const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: outboundPayload, signal: AbortSignal.timeout(60000) });
+      if (!response.ok) throw new Error('GENERATION_FAILED');
+      const result = await response.json();
+      outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
+    }
     const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
     const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[];sanitizedComplaint?:Summary};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
