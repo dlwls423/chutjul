@@ -18,6 +18,7 @@
     "test:routing": "node --experimental-strip-types scripts/regression-department-routing.mjs",
     "test:legal": "node --experimental-strip-types scripts/regression-legal-query.mjs",
     "test:ai-runtime": "node --experimental-strip-types scripts/regression-ai-runtime.mjs",
+    "test:local-ai-eval": "node scripts/evaluate-local-ai.mjs",
     "db:generate": "drizzle-kit generate",
     "test:security": "node --experimental-strip-types scripts/regression-security.mjs"
   },
