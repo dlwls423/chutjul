@@ -1,3 +1,6 @@
+import { reviewDraftGrounding } from "../lib/draft-grounding.ts";
+import { DRAFT_GROUNDING_INSTRUCTIONS } from "../lib/draft-policy.ts";
+
 const baseUrl = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 const models = (process.env.LOCAL_AI_EVAL_MODELS || "Gemma:latest,qwen3:8b")
   .split(",")
@@ -96,6 +99,7 @@ async function evaluateCase(model, testCase) {
     "아래 비식별 민원과 제공된 근거만 사용해 공공기관 민원 답변 초안의 핵심 내용을 작성하세요.",
     "제공되지 않은 법령, 조문, 사실을 만들지 마세요.",
     "각 답변에는 반드시 사용한 근거 ID를 넣으세요.",
+    DRAFT_GROUNDING_INSTRUCTIONS,
     "JSON 스키마를 정확히 지키고 한국어로 작성하세요.",
     `민원: ${testCase.question}`,
     `근거: ${JSON.stringify(testCase.evidence)}`,
@@ -129,6 +133,10 @@ async function evaluateCase(model, testCase) {
   const mentions = articleMentions(parsed);
   const unsupportedArticles = mentions.filter((article) => !allowedArticles.includes(article));
   const missingEvidence = allowedIds.filter((id) => !citations.includes(id));
+  const grounding = reviewDraftGrounding(
+    Array.isArray(parsed.sections) ? parsed.sections.map((section) => section?.answer || "").join("\n") : "",
+    testCase.evidence.map((item) => item.content).join("\n"),
+  );
   return {
     caseId: testCase.id,
     elapsedMs,
@@ -138,6 +146,7 @@ async function evaluateCase(model, testCase) {
     citations,
     missingEvidence,
     unsupportedArticles,
+    grounding,
     response: parsed,
   };
 }
@@ -200,6 +209,7 @@ const summaries = models.map((model) => {
     jsonPasses: modelResults.filter((item) => item.jsonValid).length,
     citationPasses: modelResults.filter((item) => item.missingEvidence.length === 0).length,
     hallucinationPasses: modelResults.filter((item) => item.unsupportedArticles.length === 0).length,
+    groundingPasses: modelResults.filter((item) => item.grounding.passed).length,
   };
 });
 
