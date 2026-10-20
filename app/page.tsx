@@ -16,6 +16,7 @@ import AuthGate, { Profile } from "../components/AuthGate";
 import { isComplaintPdfInBrowser, maskSensitiveText, preparePdfInBrowser } from "../lib/browser-privacy";
 import { hasGuideFileKeyword } from "../lib/document-classification";
 import { editableTextToSummary, type SafeComplaintSummary } from "../lib/local-draft";
+import { generateDraftInBrowser, selectBrowserEvidence } from "../lib/browser-draft";
 import { cleanExtractedText, parseEpeopleComplaint } from "../lib/epeople-parser";
 import { WORKSPACE_DEPARTMENTS } from "../lib/departments";
 import OnboardingTour, { ONBOARDING_STORAGE_KEY } from "../components/OnboardingTour";
@@ -459,7 +460,7 @@ function Analyze({
   const [analysisStatus, setAnalysisStatus] = useState(initial.draft?"저장된 초안 복원 · 담당자 검토 필요":initial.editorText?"작성 중인 질의 복원 · 수락 전 확인 필요":"분석 전");
   const [safeSummary, setSafeSummary] = useState<SafeComplaintSummary | null>(initial.editorText?editableTextToSummary(initial.editorText):null);
   const [summaryApproved, setSummaryApproved] = useState(false);
-  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[]; } | null>(null);
+  const [preview, setPreview] = useState<{ envelope:string; signature:string; payload:unknown; aiProvider?:"browser"; evidence:{reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number}[]; candidates:SearchItem[]; } | null>(null);
   const [draft, setDraft] = useState(initial.draft);
   const [visibleDraft,setVisibleDraft]=useState(initial.draft);
   const [dueDate,setDueDate]=useState(initial.dueDate);
@@ -487,6 +488,11 @@ function Analyze({
     const payload=await response.json();
     if(!response.ok)throw new Error(payload.error||'초안 자료를 준비하지 못했습니다.');
     return payload;
+  }
+  async function createBrowserDraft(prepared:NonNullable<typeof preview>,selectedReferences?:string[]){
+    const browserPayload=selectedReferences?selectBrowserEvidence(prepared.payload,selectedReferences):prepared.payload;
+    const generated=await generateDraftInBrowser(browserPayload,message=>setAnalysisStatus(message));
+    return postDraft({action:'finalize-browser',confirmed:true,envelope:prepared.envelope,signature:prepared.signature,browserOutput:generated.outputText,...(selectedReferences?{selectedReferences}: {})});
   }
   async function loadComplaintPdf(file:File){
     if(busy)return;
@@ -527,10 +533,11 @@ function Analyze({
     try{
       const prepared=await postDraft({action:'prepare',summary:acceptedSummary,confirmed:true,applicationNumber:temporaryMeta.application_number||'',answerDirection:answerDirection.trim(),department});
       const references=new Map(prepared.evidence.map((item:{recordId:string;reference:string})=>[item.recordId,item.reference]));
-      setPreview(prepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
+      const browserPrepared={...prepared,aiProvider:'browser' as const};
+      setPreview(browserPrepared);setResults((prepared.candidates||[]).map((item:SearchItem)=>({...item,evidenceReference:references.get(item.id)})));
       setAnalysisPhase('generating');
       setAnalysisStatus('관련 자료를 찾았습니다 · AI가 적절한 근거를 선별하고 있습니다');
-      const result=await postDraft({action:'generate',confirmed:true,envelope:prepared.envelope,signature:prepared.signature});
+      const result=await createBrowserDraft(browserPrepared);
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setManualEvidenceRefs((result.selectedEvidence||[]).map((item:{reference:string})=>item.reference));setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('관련 자료 검색, 근거 선별, 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'관련 자료 검색 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('근거 검색 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
@@ -538,7 +545,7 @@ function Analyze({
     if(busy||!preview)return;
     setBusy(true);setAnalysisPhase('generating');setAnalysisError('');setAnalysisStatus('AI가 적절한 근거를 선별하고 있습니다');
     try{
-      const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature});
+      const result=await createBrowserDraft(preview);
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('AI 근거 선별 및 초안 작성 완료 · 담당자 검토 필요');flash('근거 선별과 답변 초안 작성이 완료되었습니다.');
     }catch(error){const message=error instanceof Error?error.message:'초안 작성 중 오류가 발생했습니다.';setAnalysisError(message);setAnalysisStatus('초안 작성 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
@@ -546,7 +553,7 @@ function Analyze({
     if(busy||!preview||!manualEvidenceRefs.length)return;
     setBusy(true);setAnalysisPhase('generating');setAnalysisError('');setAnalysisStatus('선택한 근거로 답변을 다시 작성하고 있습니다');
     try{
-      const result=await postDraft({action:'generate',confirmed:true,envelope:preview.envelope,signature:preview.signature,selectedReferences:manualEvidenceRefs});
+      const result=await createBrowserDraft(preview,manualEvidenceRefs);
       revealDraft(result.draft);setQualityChecks(result.qualityChecks||{});setSelectedEvidence(result.selectedEvidence||[]);setAnalysisStatus('선택 근거 기반 초안 작성 완료 · 담당자 검토 필요');flash('선택한 근거로 답변 초안을 다시 작성했습니다.');
     }catch(error){const message=error instanceof Error?error.message:'답변을 다시 작성하지 못했습니다.';setAnalysisError(message);setAnalysisStatus('재작성 중단');flash(message);}finally{setBusy(false);setAnalysisPhase('idle');}
   }
@@ -619,8 +626,9 @@ function Analyze({
         </div>
         <div className="draft-body">
           {draft ? <textarea className={`editor draft-editor${draftTyping?' is-typing':''}`} aria-label="답변 초안" value={visibleDraft} onChange={event=>{if(typingTimerRef.current)clearInterval(typingTimerRef.current);typingTimerRef.current=null;setDraftTyping(false);setDraft(event.target.value);setVisibleDraft(event.target.value);}} /> : preview ? <div className="editor transmission-review">
-            <div className="review-heading"><b>승인된 비식별 자료</b><span>민원 원문·PDF·개인 식별정보는 전송하지 않습니다.</span></div>
-            <details open><summary>실제 OpenAI 전송자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
+            <div className="review-heading"><b>브라우저 AI 입력자료</b><span>아래 자료는 서버의 외부 AI가 아니라 현재 기기의 브라우저 모델에서만 처리됩니다. 민원 원문·PDF·개인 식별정보는 포함하지 않습니다.</span></div>
+            <div className="browser-ai-badge"><span aria-hidden="true">⌁</span><b>기기 내 처리</b><small>WebGPU · 외부 LLM 자동 우회 없음</small></div>
+            <details open><summary>브라우저 AI가 사용할 비식별 자료 전체 보기</summary><pre>{JSON.stringify(preview.payload,null,2)}</pre></details>
             <p>처리가 중단된 경우에만 아래 버튼으로 이어서 진행할 수 있습니다.</p><button className="analyze" disabled={busy} onClick={retryDraft}>{busy?analysisStatus:'초안 작성 다시 시도'}</button>
           </div> : <div className="editor draft-empty"><b>비식별 요약을 확인하고 수락해 주세요.</b><p>수락하면 관련 자료 검색, 근거 선별, 답변 초안 작성이 자동으로 이어집니다.</p></div>}
           <aside className="evidence">

@@ -152,9 +152,11 @@ async function POSTHandler(request: Request) {
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: scopeDepartment, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
-      return NextResponse.json({ envelope, signature: await sign(envelope), payload: JSON.parse(payload), evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
+      const browserPayload={instructions:DRAFT_INSTRUCTIONS,input,text:{format:{schema:outputSchema}},max_output_tokens:2400};
+      return NextResponse.json({ envelope, signature: await sign(envelope), payload: browserPayload, aiProvider:'browser', evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
-    if (body.action !== 'generate' || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature','selectedReferences'].includes(k))) throw new Error('INVALID_INPUT');
+    const browserFinalize=body.action==='finalize-browser';
+    if ((!browserFinalize&&body.action !== 'generate') || body.confirmed !== true || Object.keys(body).some(k => !['action','confirmed','envelope','signature','selectedReferences','browserOutput'].includes(k))) throw new Error('INVALID_INPUT');
     if (typeof body.envelope !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature || '')) throw new Error('INVALID_INPUT');
     const signature = new Uint8Array(body.signature.match(/../g).map((v: string) => parseInt(v,16)));
     if (!await crypto.subtle.verify('HMAC', await key(), signature, encoder.encode(body.envelope))) throw new Error('INVALID_INPUT');
@@ -174,13 +176,20 @@ async function POSTHandler(request: Request) {
       parsedPayload.text.format.schema.properties.selectedEvidence.items.properties.reference.enum=requested;
       outboundPayload=JSON.stringify(parsedPayload);
     }
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('NOT_CONFIGURED');
-    const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: outboundPayload, signal: AbortSignal.timeout(60000) });
-    if (!response.ok) throw new Error('GENERATION_FAILED');
-    const result = await response.json();
-    const outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
-    const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
+    let outputText='';
+    if(browserFinalize){
+      if(typeof body.browserOutput!=='string'||body.browserOutput.length<10||body.browserOutput.length>30000)throw new Error('INVALID_INPUT');
+      outputText=body.browserOutput;
+    }else{
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) throw new Error('NOT_CONFIGURED');
+      const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: outboundPayload, signal: AbortSignal.timeout(60000) });
+      if (!response.ok) throw new Error('GENERATION_FAILED');
+      const result = await response.json();
+      outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
+    }
+    let structured:{selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
+    try{structured=JSON.parse(outputText);}catch{throw new Error('OUTPUT_REVIEW_FAILED');}
     const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[];sanitizedComplaint?:Summary};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
     if(!evidenceMap.size)throw new Error('OUTPUT_REVIEW_FAILED');

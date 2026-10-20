@@ -1,5 +1,6 @@
 'use client';
 import { maskSensitiveText } from './browser-privacy';
+import { browserAiLabel, getBrowserAiEngine } from './browser-ai';
 
 export type SafeComplaintSummary = {
   purpose: string;
@@ -80,11 +81,7 @@ export async function summarizeLocally(raw: string, report: (status: string) => 
   const masked = maskSensitiveText(raw).value;
   const backup = fallback(masked);
   if (!('gpu' in navigator)) return { summary: backup, masked, model: '브라우저 보안 요약기' };
-  const { CreateMLCEngine } = await import('@mlc-ai/web-llm');
-  report('로컬 AI 준비 중 · 최초 실행 시 모델을 다운로드합니다.');
-  const engine = await CreateMLCEngine('Qwen2.5-0.5B-Instruct-q4f16_1-MLC', {
-    initProgressCallback: p => report(`로컬 AI 준비 ${Math.round(p.progress * 100)}%`),
-  });
+  const { engine, model } = await getBrowserAiEngine(report);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     report('기기 안에서 개인정보를 제외하고 민원 맥락을 정리 중');
@@ -103,11 +100,10 @@ export async function summarizeLocally(raw: string, report: (status: string) => 
     const content = response.choices[0]?.message.content || '';
     const found = content.match(/\{[\s\S]*\}/);
     if (!found) return { summary: backup, masked, model: '브라우저 보안 요약기' };
-    return { summary: normalize(JSON.parse(found[0]), backup), masked, model: 'Qwen2.5-0.5B (브라우저)' };
+    return { summary: normalize(JSON.parse(found[0]), backup), masked, model: browserAiLabel(model) };
   } catch {
     return { summary: backup, masked, model: '브라우저 보안 요약기' };
   } finally {
     if (timer) clearTimeout(timer);
-    await engine.unload().catch(() => undefined);
   }
 }
