@@ -33,7 +33,12 @@ export async function generateStructuredText(request: StructuredGenerationReques
         stream: false,
         think: false,
         format: request.schema,
-        options: { temperature: 0.1, num_predict: request.maxOutputTokens || 3000 },
+        options: {
+          temperature: 0.1,
+          num_predict: Math.min(request.maxOutputTokens || 1800, 1800),
+          repeat_penalty: 1.12,
+          repeat_last_n: 256,
+        },
         messages: [
           { role: "system", content: request.instructions },
           { role: "user", content: request.input },

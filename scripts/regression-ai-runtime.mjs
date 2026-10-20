@@ -17,6 +17,8 @@ try{
   assert.equal(generated,'{"ok":true}');
   assert.equal(calls[0].body.stream,false);
   assert.deepEqual(calls[0].body.format,{type:"object"});
+  assert.equal(calls[0].body.options.repeat_penalty,1.12);
+  assert.equal(calls[0].body.options.num_predict,1800);
   assert.deepEqual(await createEmbeddings(["a","b"],3),[[.1,.2,.3],[.3,.2,.1]]);
   await assert.rejects(()=>createEmbeddings(["a","b"],1536),/EMBEDDING_DIMENSION_MISMATCH/);
   console.log("ai runtime regression: ok");

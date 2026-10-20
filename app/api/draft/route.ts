@@ -189,7 +189,8 @@ async function POSTHandler(request: Request) {
       const result = await response.json();
       outputText=(result.output || []).flatMap((item: {content?: {type:string;text?:string}[]}) => (item.content || []).filter(c => c.type === 'output_text').map(c => c.text || '')).join('\n');
     }
-    const structured=JSON.parse(outputText) as {selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
+    let structured:{selectedEvidence:{reference:string;reason:string}[];inquirySummary:string;sections:DraftSection[]};
+    try{structured=JSON.parse(outputText);}catch{throw new Error('OUTPUT_REVIEW_FAILED');}
     const approvedInput=JSON.parse(JSON.parse(outboundPayload).input) as {candidateEvidence:Evidence[];sanitizedComplaint?:Summary};
     const evidenceMap=new Map(approvedInput.candidateEvidence.map(item=>[item.reference,item]));
     if(!evidenceMap.size)throw new Error('OUTPUT_REVIEW_FAILED');

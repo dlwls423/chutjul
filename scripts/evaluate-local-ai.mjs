@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { reviewDraftGrounding } from "../lib/draft-grounding.ts";
 import { DRAFT_GROUNDING_INSTRUCTIONS } from "../lib/draft-policy.ts";
 
@@ -7,7 +8,7 @@ const models = (process.env.LOCAL_AI_EVAL_MODELS || "Gemma:latest,qwen3:8b")
   .map((value) => value.trim())
   .filter(Boolean);
 
-const cases = [
+const smokeCases = [
   {
     id: "retention-after-withdrawal",
     question:
@@ -55,6 +56,16 @@ const cases = [
   },
 ];
 
+const fullDatasetUrl = process.env.LOCAL_AI_EVAL_DATASET
+  ? new URL(`file:///${process.env.LOCAL_AI_EVAL_DATASET.replace(/\\/g, "/")}`)
+  : new URL("../tests/fixtures/local-ai-eval-cases.json", import.meta.url);
+const loadedCases = process.argv.includes("--full") || process.env.LOCAL_AI_EVAL_DATASET
+  ? JSON.parse(await readFile(fullDatasetUrl, "utf8"))
+  : smokeCases;
+const requestedCaseIds = new Set((process.env.LOCAL_AI_EVAL_CASES || "").split(",").map((value) => value.trim()).filter(Boolean));
+const cases = requestedCaseIds.size ? loadedCases.filter((testCase) => requestedCaseIds.has(testCase.id)) : loadedCases;
+if (!cases.length) throw new Error("LOCAL_AI_EVAL_CASES_NO_MATCH");
+
 const schema = {
   type: "object",
   properties: {
@@ -92,6 +103,21 @@ function articleMentions(value) {
   );
 }
 
+function containsUnnegatedPhrase(rendered, phrase) {
+  const normalizedPhrase = phrase.replace(/\s+/g, "");
+  let offset = normalizedRenderedIndex(rendered, normalizedPhrase, 0);
+  while (offset >= 0) {
+    const trailing = rendered.slice(offset + normalizedPhrase.length, offset + normalizedPhrase.length + 45);
+    if (!/(?:아니|않|금지|불필요)/.test(trailing)) return true;
+    offset = normalizedRenderedIndex(rendered, normalizedPhrase, offset + normalizedPhrase.length);
+  }
+  return false;
+}
+
+function normalizedRenderedIndex(rendered, phrase, fromIndex) {
+  return rendered.replace(/\s+/g, "").indexOf(phrase, fromIndex);
+}
+
 async function evaluateCase(model, testCase) {
   const allowedIds = testCase.evidence.map((item) => item.id);
   const allowedArticles = articleMentions(testCase.evidence);
@@ -114,7 +140,7 @@ async function evaluateCase(model, testCase) {
       think: false,
       format: schema,
       messages: [{ role: "user", content: prompt }],
-      options: { temperature: 0.1, num_predict: 1400 },
+      options: { temperature: 0.1, num_predict: 900, repeat_penalty: 1.12, repeat_last_n: 256 },
     }),
     signal: AbortSignal.timeout(240_000),
   });
@@ -133,6 +159,12 @@ async function evaluateCase(model, testCase) {
   const mentions = articleMentions(parsed);
   const unsupportedArticles = mentions.filter((article) => !allowedArticles.includes(article));
   const missingEvidence = allowedIds.filter((id) => !citations.includes(id));
+  const rendered = JSON.stringify(Array.isArray(parsed.sections) ? parsed.sections : parsed);
+  const normalizedRendered = rendered.replace(/\s+/g, "");
+  const expectedPhrases = Array.isArray(testCase.expectedPhrases) ? testCase.expectedPhrases : [];
+  const forbiddenPhrases = Array.isArray(testCase.forbiddenPhrases) ? testCase.forbiddenPhrases : [];
+  const missingExpectedPhrases = expectedPhrases.filter((phrase) => !normalizedRendered.includes(phrase.replace(/\s+/g, "")));
+  const foundForbiddenPhrases = forbiddenPhrases.filter((phrase) => containsUnnegatedPhrase(normalizedRendered, phrase));
   const grounding = reviewDraftGrounding(
     Array.isArray(parsed.sections) ? parsed.sections.map((section) => section?.answer || "").join("\n") : "",
     testCase.evidence.map((item) => item.content).join("\n"),
@@ -145,6 +177,8 @@ async function evaluateCase(model, testCase) {
     sectionCount: Array.isArray(parsed.sections) ? parsed.sections.length : 0,
     citations,
     missingEvidence,
+    missingExpectedPhrases,
+    foundForbiddenPhrases,
     unsupportedArticles,
     grounding,
     response: parsed,
@@ -210,6 +244,8 @@ const summaries = models.map((model) => {
     citationPasses: modelResults.filter((item) => item.missingEvidence.length === 0).length,
     hallucinationPasses: modelResults.filter((item) => item.unsupportedArticles.length === 0).length,
     groundingPasses: modelResults.filter((item) => item.grounding.passed).length,
+    checkpointPasses: modelResults.filter((item) => item.missingExpectedPhrases.length === 0).length,
+    forbiddenPhrasePasses: modelResults.filter((item) => item.foundForbiddenPhrases.length === 0).length,
   };
 });
 

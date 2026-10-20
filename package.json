@@ -20,6 +20,7 @@
     "test:ai-runtime": "node --experimental-strip-types scripts/regression-ai-runtime.mjs",
     "test:draft-grounding": "node --experimental-strip-types scripts/regression-draft-grounding.mjs",
     "test:local-ai-eval": "node --experimental-strip-types scripts/evaluate-local-ai.mjs",
+    "test:local-ai-eval:full": "node --experimental-strip-types scripts/evaluate-local-ai.mjs --full",
     "db:generate": "drizzle-kit generate",
     "test:security": "node --experimental-strip-types scripts/regression-security.mjs"
   },
