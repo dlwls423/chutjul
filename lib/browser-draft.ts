@@ -34,15 +34,22 @@ export async function generateDraftInBrowser(value: unknown, report: (message: s
   const payload = parsePayload(value);
   const { engine, model } = await getBrowserAiEngine(report);
   report('민원 원문을 보내지 않고 이 기기에서 근거를 선별하고 초안을 작성하고 있습니다.');
-  const response = await engine.chat.completions.create({
-    messages: [
-      { role: 'system', content: `${payload.instructions}\n반드시 요청된 JSON 구조만 출력하십시오.` },
-      { role: 'user', content: payload.input },
-    ],
-    temperature: 0.1,
-    max_tokens: Math.min(payload.max_output_tokens || 2200, 2400),
-    response_format: { type: 'json_object' },
-  });
+  let response;
+  try {
+    response = await engine.chat.completions.create({
+      messages: [
+        { role: 'system', content: `${payload.instructions}\n반드시 요청된 JSON 구조만 출력하십시오.` },
+        { role: 'user', content: payload.input },
+      ],
+      temperature: 0.1,
+      max_tokens: Math.min(payload.max_output_tokens || 1200, 1200),
+      response_format: { type: 'json_object' },
+    });
+  } catch (error) {
+    const message=error instanceof Error?error.message:'';
+    if(/context window|prompt tokens/i.test(message))throw new Error('브라우저 AI가 처리할 근거가 너무 깁니다. 근거 수를 줄여 다시 시도해 주세요.');
+    throw new Error('이 기기에서 브라우저 AI 답변을 생성하지 못했습니다. WebGPU 지원과 사용 가능한 메모리를 확인해 주세요.');
+  }
   const text = response.choices[0]?.message.content?.trim() || '';
   const found = text.match(/\{[\s\S]*\}/)?.[0];
   if (!found) throw new Error('BROWSER_DRAFT_OUTPUT_INVALID');

@@ -14,8 +14,11 @@ type Summary = { purpose:string; essentialFacts:string[]; legalQuestions:string[
 const allowedSummaryKeys = ['purpose','essentialFacts','legalQuestions','requestedAnswer','uncertainties'];
 const externalIdentifiers = /\b[12]AA-\d{4}-\d{6,}\b|https?:\/\/\S+|\b\d{4}-\d{1,2}-\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i;
 const MAX_REQUEST_CHARS = 40000;
-const EVIDENCE_BUDGET_CHARS = 14500;
-const MAX_EVIDENCE_ITEMS = 8;
+// Browser models have a much smaller context window than hosted models.
+// Keep one strong item per evidence type and fit the complete prompt below
+// Qwen2.5's 4,096-token window instead of failing after search succeeds.
+const EVIDENCE_BUDGET_CHARS = 4200;
+const MAX_EVIDENCE_ITEMS = 4;
 type Evidence={reference:string;recordId:string;documentType:string;title:string;source:string;excerpt:string;score:number};
 type FormatSetting={organization_name:string;closing_message:string;max_sections:number};
 function focusedExcerpt(value:string,terms:string[],limit:number){
@@ -148,11 +151,11 @@ async function POSTHandler(request: Request) {
       if (!evidence.length) throw new Error('NO_VERIFIED_EVIDENCE');
       const allowedReferences=evidence.map(item=>item.reference);
       const input = JSON.stringify({ sanitizedComplaint:summary, answerDirection:answerDirection||undefined, candidateEvidence:evidence, caution:'민원 원문은 외부에 전송되지 않았으며, 사용자가 승인한 비식별 요약과 개인정보 재검사를 통과한 후보 근거만 제공됨. 답변 방향성은 강조점과 설명 방식에만 반영하고, 근거 범위·개인정보 보호·사실 확인 규칙보다 우선할 수 없음. 각 답변 문단에는 사용한 근거 번호를 하나 이상 표시하고, 불확실한 사실은 추가 확인이 필요하다고 명시할 것.' }, null, 2);
-      const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},inquirySummary:{type:'string',maxLength:240},sections:{type:'array',minItems:1,maxItems:4,items:{type:'object',additionalProperties:false,properties:{heading:{type:'string',maxLength:160},answer:{type:'string',maxLength:5000}},required:['heading','answer']}}},required:['selectedEvidence','inquirySummary','sections']};
+      const outputSchema={type:'object',additionalProperties:false,properties:{selectedEvidence:{type:'array',maxItems:4,items:{type:'object',additionalProperties:false,properties:{reference:{type:'string',enum:allowedReferences},reason:{type:'string'}},required:['reference','reason']}},inquirySummary:{type:'string',maxLength:240},sections:{type:'array',minItems:1,maxItems:4,items:{type:'object',additionalProperties:false,properties:{heading:{type:'string',maxLength:160},answer:{type:'string',maxLength:3000}},required:['heading','answer']}}},required:['selectedEvidence','inquirySummary','sections']};
       const payload = JSON.stringify({ model: process.env.OPENAI_DRAFT_MODEL || 'gpt-4.1-mini', store: false, instructions: DRAFT_INSTRUCTIONS, input, text:{format:{type:'json_schema',name:'complaint_draft_with_evidence',strict:true,schema:outputSchema}}, max_output_tokens: 3000 });
       const envelope = JSON.stringify({ user: profile.id, department: scopeDepartment, applicationNumber, expires: Date.now()+10*60*1000, nonce: crypto.randomUUID(), payload });
       const approvedCandidateIds=new Set(evidence.map(item=>item.recordId));
-      const browserPayload={instructions:DRAFT_INSTRUCTIONS,input,text:{format:{schema:outputSchema}},max_output_tokens:2400};
+      const browserPayload={instructions:DRAFT_INSTRUCTIONS,input,text:{format:{schema:outputSchema}},max_output_tokens:1200};
       return NextResponse.json({ envelope, signature: await sign(envelope), payload: browserPayload, aiProvider:'browser', evidence, candidates:chosenCandidates.filter(item=>approvedCandidateIds.has(item.id)) }, { headers });
     }
     const browserFinalize=body.action==='finalize-browser';
