@@ -29,6 +29,8 @@ OpenAI가 완전히 제거된 것은 아니다. 임베딩 생성과 안내서 Q&
 
 ### 다른 컴퓨터에서 이어서 실행
 
+새 Codex 세션이 현재 맥락을 자동으로 복원하도록 루트 `AGENTS.md`를 추가했다. 저장소를 연 뒤 `docs/CODEX_CONTINUATION.md`의 “Codex 재개 명령”을 그대로 입력하면 된다.
+
 ```powershell
 git clone https://github.com/dlwls423/chutjul.git
 cd chutjul

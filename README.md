@@ -8,6 +8,8 @@
 
 ## 다른 컴퓨터에서 이어 개발하기
 
+Codex에서 대화 맥락까지 복원해 이어서 작업하려면 [Codex 재개 안내](docs/CODEX_CONTINUATION.md)를 사용합니다. 저장소 루트의 `AGENTS.md`가 현재 목표, 승인 경계, 검증 순서를 새 Codex 세션에 자동으로 안내합니다.
+
 Node.js 22.13 이상, Git, pnpm을 준비하고 다음 명령을 실행합니다.
 
 ```sh
