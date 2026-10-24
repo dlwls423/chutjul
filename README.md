@@ -1,6 +1,8 @@
 # 첫줄
 
-개발 브랜치: `codex/search-wide-layout`
+안정 개발 브랜치: `codex/search-wide-layout`
+
+현재 개인정보 우선 브라우저 AI 실험 브랜치: `experiment/browser-ai`
 
 민원 자료 검색·답변 작성, 최대 10개의 민원별 작성 탭, 개인 계정 작성 상태 저장, 전체 부서 소관 가능성 비교를 제공합니다. 문서 파싱에는 선택적으로 같은 PC의 kordoc 도우미를 사용합니다.
 
@@ -9,8 +11,9 @@
 Node.js 22.13 이상, Git, pnpm을 준비하고 다음 명령을 실행합니다.
 
 ```sh
-git clone --branch codex/search-wide-layout https://github.com/dlwls423/chutjul.git
+git clone https://github.com/dlwls423/chutjul.git
 cd chutjul
+git switch experiment/browser-ai
 pnpm install
 ```
 
@@ -24,7 +27,7 @@ pnpm dev
 
 ## 기능별 설정과 검증
 
-- [인수인계](docs/HANDOFF.md): 현재 구조와 작업 이력, 남은 검증.
+- [인수인계](docs/HANDOFF.md): 최신 브랜치·배포 상태, 브라우저 AI 실험, 남은 검증과 다음 작업.
 - [문서 파싱 도우미](docs/kordoc-local-integration.md): 해당 PC에 별도 설치하고 OCR 모델을 준비하는 방법.
 - [민원 탭·계정 저장](docs/complaint-workspaces.md): DB 마이그레이션과 개인 계정 저장·복원 검증.
 - [전체 부서 소관 분석](docs/department-routing.md): 상대 가능성 계산, 개인정보 집계 기준과 검증 한계.

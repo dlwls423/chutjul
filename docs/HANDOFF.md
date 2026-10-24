@@ -1,5 +1,79 @@
 # 첫줄 프로젝트 인수인계
 
+> 최신 상태(2026-10-24): 현재 작업 브랜치는 `experiment/browser-ai`, 기준 커밋은 `9a36da5`입니다. 아래 2026-10-11 본문은 안정 브랜치까지의 상세 이력이며, 실제 인계 시에는 먼저 이 최신 상태와 `docs/PROJECT_STATUS.md`, `docs/TASK_PLAN.md`, `docs/WORK_LOG.md`를 확인하세요.
+
+## 0. 2026-10-24 최신 인계 요약
+
+### 브랜치와 배포
+
+| 구분 | 기준 | 상태 |
+|---|---|---|
+| 운영 사이트 | `https://chutjul.leeyejin113.chatgpt.site` | 안정 버전. 브라우저 AI 답변 실험 미반영 |
+| 테스트 사이트 | `https://chutjul-test.leeyejin113.chatgpt.site` | 브라우저 AI 답변 실험 배포·실기기 확인 완료 |
+| 안정 개발 브랜치 | `codex/search-wide-layout` | `origin/codex/search-wide-layout`과 동일 |
+| 현재 작업 브랜치 | `experiment/browser-ai` | 안정 기준보다 2개 기능 커밋 앞섬 |
+| 서버 로컬 AI 실험 | `experiment/local-ai` | 별도 비교 실험 보존, 운영 미반영 |
+
+Sites 배포와 GitHub push는 별개다. 테스트 사이트의 기능이 자동으로 운영 사이트나 `master`에 반영되지 않는다.
+
+### 브라우저 AI 실험 완료 범위
+
+- 민원 비식별 요약과 근거 선별·답변 생성을 WebLLM Qwen2.5로 사용자 기기 안에서 수행한다.
+- 데스크톱 메모리 8GB 이상이면 1.5B, 그 외에는 0.5B 경량 모델을 선택하고 한 번 적재한 엔진을 재사용한다.
+- 서버는 부서 권한에 맞는 근거 후보와 승인 봉투를 만들고, 브라우저가 생성한 결과의 JSON 형식·허용 근거·법령 조문·개인정보를 재검사한다.
+- WebGPU 또는 브라우저 생성 실패 시 OpenAI 답변 생성으로 자동 우회하지 않는다.
+- Qwen2.5 4,096 토큰 컨텍스트에 맞춰 근거 최대 4개·약 4,200자, 출력 1,200토큰으로 조정했다.
+- 테스트 사이트에서 모델 적재와 초안 생성까지 확인했다. 운영에는 병합·배포하지 않았다.
+
+OpenAI가 완전히 제거된 것은 아니다. 임베딩 생성과 안내서 Q&A 추출은 현재도 `OPENAI_API_KEY`를 사용한다.
+
+### 다른 컴퓨터에서 이어서 실행
+
+```powershell
+git clone https://github.com/dlwls423/chutjul.git
+cd chutjul
+git switch experiment/browser-ai
+pnpm install
+Copy-Item .env.example .env.local
+pnpm dev
+```
+
+Secret은 GitHub에 포함하지 않는다. 기존 환경 관리자에게 안전한 경로로 전달받아 `.env.local` 또는 배포 플랫폼 Secret에 등록한다.
+
+전체 검증 명령:
+
+```powershell
+pnpm test:privacy
+pnpm test:regression
+pnpm test:documents
+pnpm test:workspaces
+pnpm test:routing
+pnpm test:legal
+pnpm test:security
+pnpm exec tsc --noEmit
+pnpm build
+```
+
+브라우저 AI는 빌드만으로 검증되지 않는다. Chromium 계열 WebGPU 지원 기기에서 최초 모델 다운로드, 재사용, 초안 생성, 근거 재선택을 직접 확인해야 한다.
+
+### 알려진 문제
+
+1. WebGPU 미지원·저메모리·모델 다운로드 차단 기기에서는 답변 생성이 중단된다.
+2. 0.5B/1.5B 소형 모델의 법률 정확성·문체·근거 선별 품질은 OpenAI 기준과 정량 비교하지 않았다.
+3. 통합 검색은 규칙 기반 키워드 점수가 중심이며 완전한 하이브리드 검색은 아니다.
+4. 법령 동기화 26개 중 `개인정보 보호책임자 경력 인정에 관한 고시` 1건이 국가법령정보 API에서 반복 실패한다. 나머지 저장과 검색은 정상이다.
+5. `202610130001_server_only_data_access.sql`을 포함한 마이그레이션은 새 환경에서 자동 적용되지 않는다.
+6. `site-sync-browser-ai/`, `site-verify-browser-ai/`는 로컬 배포·검증용 임시 폴더이며 Git에 올리지 않는다.
+
+### 다음 작업
+
+1. 같은 합성 민원·근거로 OpenAI/Qwen 0.5B/Qwen 1.5B의 정확성, 환각, 문체, 평균/P95 시간을 비교한다.
+2. WebGPU 미지원·메모리 부족·다운로드 실패 UX와 안전한 재시도 안내를 보강한다.
+3. 브라우저 결과의 개인정보 누락, 허용 근거 이탈, 존재하지 않는 법령·조문을 자동 검사한다.
+4. 임베딩과 안내서 Q&A 추출도 외부 AI에서 제거할지 검토하고 로컬 임베딩 품질을 평가한다.
+5. 검색 품질 평가셋으로 저관련 결과 억제·하이브리드 검색·리랭킹을 비교한다.
+6. 결과를 `docs/LOCAL_AI_EVALUATION.md`에 기록하고, 사용자 승인 전에는 운영 브랜치 병합·운영 배포를 하지 않는다.
+
 최종 정리일: 2026-10-11  
 기준 브랜치: `codex/search-wide-layout`
 
